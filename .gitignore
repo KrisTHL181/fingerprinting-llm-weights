@@ -1,0 +1,16 @@
+# Python 缓存与字节码
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# LaTeX 编译中间产物（可 compile.sh 重新生成）
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
