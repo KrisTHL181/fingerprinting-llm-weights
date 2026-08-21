@@ -1,0 +1,70 @@
+Loading weights:   0%|          | 0/320 [00:00<?, ?it/s]Loading weights:  12%|█▏        | 38/320 [00:00<00:00, 379.39it/s]Loading weights:  40%|████      | 129/320 [00:00<00:00, 688.92it/s]Loading weights:  67%|██████▋   | 213/320 [00:00<00:00, 757.41it/s]Loading weights:  96%|█████████▌| 306/320 [00:00<00:00, 819.60it/s]Loading weights: 100%|██████████| 320/320 [00:00<00:00, 771.25it/s]
+model layers: 24, hidden: 1024
+small model vocab: 248077
+target model vocab: 129280
+shared vocab: 108773 (43.8% of small)
+
+=== 参考句: 'The quick brown fox jumps over the lazy dog.' ===
+  step  0 | mse 0.0001 cos 0.995 changes 1/10
+  step  1 | mse 0.0002 cos 0.991 changes 2/10
+  step  2 | mse 0.0003 cos 0.988 changes 3/10
+  step  3 | mse 0.0005 cos 0.982 changes 4/10
+  step  4 | mse 0.0007 cos 0.974 changes 5/10
+  step  5 | mse 0.0009 cos 0.968 changes 6/10
+  step  6 | mse 0.0011 cos 0.958 changes 7/10
+  step  7 | mse 0.0014 cos 0.945 changes 8/10
+  step  8 | mse 0.0018 cos 0.927 changes 9/10
+  step  9 | mse 0.0024 cos 0.907 changes 10/10
+  step 10 | mse 0.0021 cos 0.917 changes 10/10
+  step 11 | mse 0.0018 cos 0.923 changes 10/10
+  step 12 | mse 0.0017 cos 0.924 changes 10/10
+  step 13 | mse 0.0017 cos 0.926 changes 10/10
+  step 14 | mse 0.0017 cos 0.928 changes 10/10
+原句:   The quick brown fox jumps over the lazy dog.
+生成:   The quick brown fox jumps over the Lazy Dog.
+mse=0.0002 cos=0.991 changed=2/10 tokens | 170.6s
+
+=== 参考句: 'The committee approved the new budget proposal this morning.' ===
+  step  0 | mse 0.0001 cos 0.997 changes 1/10
+  step  1 | mse 0.0002 cos 0.995 changes 2/10
+  step  2 | mse 0.0003 cos 0.990 changes 3/10
+  step  3 | mse 0.0004 cos 0.984 changes 4/10
+  step  4 | mse 0.0006 cos 0.979 changes 5/10
+  step  5 | mse 0.0009 cos 0.967 changes 6/10
+  step  6 | mse 0.0012 cos 0.958 changes 7/10
+  step  7 | mse 0.0016 cos 0.944 changes 8/10
+  step  8 | mse 0.0020 cos 0.928 changes 9/10
+  step  9 | mse 0.0024 cos 0.907 changes 10/10
+  step 10 | mse 0.0023 cos 0.912 changes 10/10
+  step 11 | mse 0.0023 cos 0.913 changes 10/10
+  step 12 | mse 0.0023 cos 0.912 changes 10/10
+  step 13 | mse 0.0023 cos 0.913 changes 10/10
+  step 14 | mse 0.0023 cos 0.912 changes 10/10
+原句:   The committee approved the new budget proposal this morning.
+生成:   The committee approved the new budget proposal this afternoon,
+mse=0.0002 cos=0.995 changed=2/10 tokens | 164.0s
+
+=== 参考句: 'She walked slowly through the old town under the rain.' ===
+  step  0 | mse 0.0001 cos 0.997 changes 1/11
+  step  1 | mse 0.0002 cos 0.994 changes 2/11
+  step  2 | mse 0.0003 cos 0.988 changes 3/11
+  step  3 | mse 0.0005 cos 0.982 changes 4/11
+  step  4 | mse 0.0007 cos 0.975 changes 5/11
+  step  5 | mse 0.0009 cos 0.965 changes 6/11
+  step  6 | mse 0.0012 cos 0.954 changes 7/11
+  step  7 | mse 0.0013 cos 0.949 changes 8/11
+  step  8 | mse 0.0016 cos 0.938 changes 9/11
+  step  9 | mse 0.0018 cos 0.930 changes 10/11
+  step 10 | mse 0.0021 cos 0.918 changes 11/11
+  step 11 | mse 0.0020 cos 0.924 changes 11/11
+  step 12 | mse 0.0019 cos 0.928 changes 11/11
+  step 13 | mse 0.0019 cos 0.926 changes 11/11
+  step 14 | mse 0.0019 cos 0.928 changes 11/11
+原句:   She walked slowly through the old town under the rain.
+生成:   He walked slowly through the old town under the rain,
+mse=0.0002 cos=0.994 changed=2/11 tokens | 176.5s
+
+===== SUMMARY =====
+'The quick brown fox jumps over the lazy dog.' -> 'The quick brown fox jumps over the Lazy Dog.'  (mse=0.0002 cos=0.991 changed=2/10)
+'The committee approved the new budget proposal this morning.' -> 'The committee approved the new budget proposal this afternoon,'  (mse=0.0002 cos=0.995 changed=2/10)
+'She walked slowly through the old town under the rain.' -> 'He walked slowly through the old town under the rain,'  (mse=0.0002 cos=0.994 changed=2/11)

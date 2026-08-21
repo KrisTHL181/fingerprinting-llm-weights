@@ -1,0 +1,84 @@
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:   1%|          | 1/146 [00:00<00:20,  7.14it/s]Loading weights:  16%|█▌        | 23/146 [00:00<00:01, 112.14it/s]Loading weights:  34%|███▎      | 49/146 [00:00<00:00, 169.78it/s]Loading weights:  52%|█████▏    | 76/146 [00:00<00:00, 200.63it/s]Loading weights:  70%|██████▉   | 102/146 [00:00<00:00, 219.50it/s]Loading weights:  88%|████████▊ | 129/146 [00:00<00:00, 232.63it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 202.82it/s]
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+shared vocab: 70663/128256 Qwen tokens
+model layers=16 hidden=2048 layer=8
+reference: 'The quick brown fox jumps over the lazy dog.'  (21 candidates)
+    cand: 'The quick brown fox jumps over the lazy dog.'
+    cand: 'The quick brown fox jumps over the lazy dogs.'
+    cand: 'The quick brown fox jumps over the lazy cat.'
+    cand: 'The quick brown fox jumps over the lazy dog,'
+    cand: 'The quick brown fox jumps-over the lazy dog.'
+    cand: 'The quick brown fox jumps over the lazy dog;\n'
+    cand: 'The quick brown fox jumps over the lazy dog--'
+    cand: 'The quick brown fox jumps over the lazy dog,\n'
+    cand: 'The quick brown fox jumps over the lazy cats.'
+    cand: 'The quick brown fox jumps over the lazy dog.\n'
+    cand: 'The quick brown fox jumps over the lazy bird.'
+    cand: 'The quick brown fox jumps over the lazy deer.'
+    cand: 'The quick brown fox jumps over the lazy lion.'
+    cand: 'The quick brown fox jumps over the lazy dog.The'
+    cand: 'The quick brown fox jumps over the lazy pig.'
+    cand: 'The quick brown fox jumps over the lazy dog.S'
+    cand: 'The quick brown fox jumps over the lazy mouse.'
+    cand: 'The quick brown fox jumps over the lazy dog ,'
+    cand: 'The quick brown fox jumps over the lazy dog.L'
+    cand: 'The quick brown fox jumps over the lazy dog.D'
+    cand: 'The quick brown fox jumps over the lazy dog.B'
+reference: 'The committee approved the new budget proposal this morning.'  (21 candidates)
+    cand: 'The committee approved the new budget proposal this morning.'
+    cand: 'The committee approved the new budget proposal this morning..'
+    cand: 'The committee approved the new budget proposal this morning-'
+    cand: 'The committee approved the new budget proposal this morning –'
+    cand: 'The committee approved the new budget proposal this evening.'
+    cand: 'The committee approved the new budgets proposal this morning.'
+    cand: 'The committee approved the new budget proposal this morning...'
+    cand: 'The committee approved the new budget proposal this morning…'
+    cand: 'The committee approved the new budget proposal this morning--'
+    cand: 'The committee approved the new budget proposal this morning.\n'
+    cand: 'The committee approved the new budget proposal this morning —'
+    cand: 'The committee approved the new budget proposal this morning....'
+    cand: 'The committee approved the new budget proposal this morning–'
+    cand: 'The committee approved the new budget proposal this morning,'
+    cand: 'The committee approved the new budget proposal this morning …'
+    cand: 'The committee approved the new budget proposal this monday.'
+    cand: 'The committee approved the new budget proposal this morning and'
+    cand: 'The committee approved the new budget proposal this morning?'
+    cand: 'The committee approved the new budget proposal this friday.'
+    cand: 'The committee approved the new budget proposal this morning.\n\n'
+    cand: 'The committee approved the new budget recommendations this morning.'
+reference: 'She walked slowly through the old town under the rain.'  (21 candidates)
+    cand: 'She walked slowly through the old town under the rain.'
+    cand: 'She walked slowly through the old town under the rain,'
+    cand: 'She walked slowly through the old town under the rain.\n'
+    cand: 'She walked slowly through the old town under the rain.\n\n'
+    cand: 'She walked slowly through the old town under the rain..'
+    cand: 'She walked slowly through the old town under the rain:\n'
+    cand: 'She walked slowly through the old town under the rain…'
+    cand: 'She walked slowly through the old town under the rain –'
+    cand: 'She walked slowly through the old town under the rain.The'
+    cand: 'She walked slowly through the old town under the rain as'
+    cand: 'She walked slowly through the old town under the rain and'
+    cand: 'She walked slowly through the old town under the rain...'
+    cand: 'She walked slowly through the old town under the rain....'
+    cand: 'She walked slowly through the old town under the rain,\n'
+    cand: 'She walked slowly through the old town under the rain —'
+    cand: 'She walked slowly through the old town under the rain …'
+    cand: 'She walked slowly through the old town under the rain;\n'
+    cand: 'She walked slowly through the old city under the rain.'
+    cand: 'She walked slowly through the old town under the rain.E'
+    cand: 'She walked slowly through the old town underneath the rain.'
+    cand: 'She walked slowly through the old town under the rain--'
+
+  r(rel)     D_logp      D_cov   D_logp_cos
+----------------------------------------------
+   0.000     0.0000     0.0000       1.0000
+   0.020     0.0104     0.4073       0.9977
+   0.050     0.0208     0.4819       0.9904
+   0.100     0.0443     0.7381       0.9687
+   0.200     0.6072     1.2054       0.7153
+   0.400     1.9977     1.4846       0.4185
+   0.600     2.6858     3.8190      -0.0369
+   1.000     3.1833    38.3409       0.0932
+
+校准解读: r 增大 -> D_logp/D_cov 单调增大。给定目标模型的实测指纹差异, 反查 r 即隐含权重相对扰动尺度。
+线性拟合 D_logp ~= 3.661*r + -0.0160   (反查 r ≈ (D_logp - -0.0160)/3.661)

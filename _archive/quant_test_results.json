@@ -1,0 +1,798 @@
+{
+  "method": "weight-only RTN per-row absmax, embeddings/lm_head fp16",
+  "args": {
+    "m": 20,
+    "bits": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      8
+    ],
+    "fracs": [
+      0.1,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "frac_bits": 4,
+    "per": "row",
+    "quant_emb": false,
+    "cross_bits": [
+      4,
+      8
+    ],
+    "out": "quant_test_results.json"
+  },
+  "qwen": {
+    "tag": "qwen",
+    "model_id": "Qwen/Qwen3.5-0.8B",
+    "layer": 8,
+    "n_probes": 63,
+    "zero_noise": {
+      "KL_full": 0.0,
+      "KL_trunc20": 0.0
+    },
+    "probes": [
+      [
+        "The quick brown fox jumps over the lazy dog."
+      ],
+      [
+        "The quick brown fox jumps over the lazy dogs."
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog;"
+      ],
+      [
+        "The quick brown fox jumps over the lazy puppy."
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog,"
+      ],
+      [
+        "The quick brown fox jumps over the lazy duck."
+      ],
+      [
+        "The quick brown fox jumps over the lazy goat."
+      ],
+      [
+        "The quick brown fox jumps over the lazy cow."
+      ],
+      [
+        "The quick brown fox jumps over the lazy tiger."
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog:"
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog?"
+      ],
+      [
+        "The quick brown fox jumps over the lazy chicken."
+      ],
+      [
+        "The quick brown fox jumps over the lazy lion."
+      ],
+      [
+        "The quick brown fox jumps over the lazy mouse."
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog\\n"
+      ],
+      [
+        "The quick brown fox jumps over the lazy Dog."
+      ],
+      [
+        "The quick brown fox jumps over the lazy frog."
+      ],
+      [
+        "The quick brown fox jumps over the lazy hog."
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog \\"
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog.S"
+      ],
+      [
+        "The quick brown fox jumps over the lazy dog\n"
+      ],
+      [
+        "The committee approved the new budget proposal this morning."
+      ],
+      [
+        "The committee approved the new budget proposal this morning,"
+      ],
+      [
+        "The committee approved the new budget proposals this morning."
+      ],
+      [
+        "The committee approved the new budget proposal this afternoon."
+      ],
+      [
+        "The committee approved the new budget proposal this morning;"
+      ],
+      [
+        "The committee approved the new budget proposal this evening."
+      ],
+      [
+        "The committee approved the new budget proposal this morning\\n"
+      ],
+      [
+        "The committee approved the new budget proposal this morning\n"
+      ],
+      [
+        "The committee approved the new budget proposal this morning:"
+      ],
+      [
+        "The committee approved the new budget proposal this morning)."
+      ],
+      [
+        "The committee approved the new budget proposal this morning.."
+      ],
+      [
+        "The committee approved the new budget suggestion this morning."
+      ],
+      [
+        "The committee approved the new budget proposition this morning."
+      ],
+      [
+        "The committee approved the new budget proposal this weekend."
+      ],
+      [
+        "The committee approved the new budget proposal this morning?"
+      ],
+      [
+        "The committee approved the new budget proposal this morning.c"
+      ],
+      [
+        "The committee approved the new budget proposal this morning.p"
+      ],
+      [
+        "The committee approved the new budget proposal these morning."
+      ],
+      [
+        "The committee approved the new budget proposal this weeks."
+      ],
+      [
+        "The committee approved the new budget proposal this morning -"
+      ],
+      [
+        "The committee approved the new budget proposal this morning—"
+      ],
+      [
+        "She walked slowly through the old town under the rain."
+      ],
+      [
+        "She walked slowly through the old town under the rain,"
+      ],
+      [
+        "She walked slowly through the old town under the rain;"
+      ],
+      [
+        "She walked slowly through the old town under the rain:"
+      ],
+      [
+        "She walked slowly through the old town under the rain –"
+      ],
+      [
+        "She walked slowly through the old town under the rain\n"
+      ],
+      [
+        "She walked slowly through the old town under the rain —"
+      ],
+      [
+        "She walked slowly through the old town under the rain -"
+      ],
+      [
+        "She walked slowly through the old town under the rain.."
+      ],
+      [
+        "She walked slowly through the old town under the rain—"
+      ],
+      [
+        "She walked slowly through the old town under the rainfall."
+      ],
+      [
+        "She walked slowly through the Old town under the rain."
+      ],
+      [
+        "She walked slowly through the old town under the rain)."
+      ],
+      [
+        "She walked slowly through the old town under the rain "
+      ],
+      [
+        "She walked slowly through the old town under the rain?"
+      ],
+      [
+        "She walked slowly through the old-city under the rain."
+      ],
+      [
+        "He walked slowly through the old town under the rain."
+      ],
+      [
+        "She walked slow through the old town under the rain."
+      ],
+      [
+        "She walked slowly through the old village under the rain."
+      ],
+      [
+        "She walked slowly through the old town under the rain.L"
+      ],
+      [
+        "She walked slowly through the old town under the rain.E"
+      ]
+    ],
+    "bit_sweep": [
+      {
+        "bits": 2,
+        "KL_full": 10.202497353629461,
+        "KL_trunc20": 8.318512061285594,
+        "n_quant": 204
+      },
+      {
+        "bits": 3,
+        "KL_full": 5.903176939676678,
+        "KL_trunc20": 4.543790764278835,
+        "n_quant": 204
+      },
+      {
+        "bits": 4,
+        "KL_full": 0.822149300859088,
+        "KL_trunc20": 0.5787059469592004,
+        "n_quant": 204
+      },
+      {
+        "bits": 5,
+        "KL_full": 0.11162280149403073,
+        "KL_trunc20": 0.07434370995513977,
+        "n_quant": 204
+      },
+      {
+        "bits": 6,
+        "KL_full": 0.020482167409407715,
+        "KL_trunc20": 0.010979588701581907,
+        "n_quant": 204
+      },
+      {
+        "bits": 8,
+        "KL_full": 0.0020961861730375815,
+        "KL_trunc20": 0.0013338870887223276,
+        "n_quant": 204
+      }
+    ],
+    "frac_sweep": [
+      {
+        "frac": 0.1,
+        "KL_full": 0.362155054592424,
+        "KL_trunc20": 0.26588981357654407,
+        "n_quant": 27
+      },
+      {
+        "frac": 0.25,
+        "KL_full": 0.3951665810235436,
+        "KL_trunc20": 0.29396890062424874,
+        "n_quant": 52
+      },
+      {
+        "frac": 0.5,
+        "KL_full": 0.48772243776964763,
+        "KL_trunc20": 0.3495926972892549,
+        "n_quant": 102
+      },
+      {
+        "frac": 0.75,
+        "KL_full": 0.6248116418719292,
+        "KL_trunc20": 0.43692572148782866,
+        "n_quant": 154
+      },
+      {
+        "frac": 1.0,
+        "KL_full": 0.822149300859088,
+        "KL_trunc20": 0.5787059469592004,
+        "n_quant": 204
+      }
+    ]
+  },
+  "cross_models": [
+    {
+      "tag": "llama",
+      "model_id": "unsloth/Llama-3.2-1B",
+      "layer": 8,
+      "n_probes": 63,
+      "zero_noise": {
+        "KL_full": 0.0,
+        "KL_trunc20": 0.0
+      },
+      "probes": [
+        [
+          "The quick brown fox jumps over the lazy dog."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dogs."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog;"
+        ],
+        [
+          "The quick brown fox jumps over the lazy cat."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog,"
+        ],
+        [
+          "The quick brown fox jumps-over the lazy dog."
+        ],
+        [
+          "The quick brown fox jumps over the lazy bunny."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.\n"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.The"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.'"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.C"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog ;"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.D"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog)."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.B"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.\""
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.G"
+        ],
+        [
+          "The quick brown fox jumps over the lazy tiger."
+        ],
+        [
+          "The quick brown fox jumps over the lazy lizard."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.F"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog.I"
+        ],
+        [
+          "The committee approved the new budget proposal this morning."
+        ],
+        [
+          "The committee approved the new budget proposal this morning.."
+        ],
+        [
+          "The committee approved the new budget proposal this afternoon."
+        ],
+        [
+          "The committee approved the new budget proposal this morning -"
+        ],
+        [
+          "The committee approved the new budget proposal this morning –"
+        ],
+        [
+          "The committee approved the new budget proposal this evening."
+        ],
+        [
+          "The committee approved the new budgets proposal this morning."
+        ],
+        [
+          "The committee approved the new budget proposal this morning…"
+        ],
+        [
+          "The committee approved the new budget proposal this morning;"
+        ],
+        [
+          "The committee approved the new budget proposal this morning --"
+        ],
+        [
+          "The committee approved the new budget proposals this morning."
+        ],
+        [
+          "The committee approved the new budget proposal this morning.\n"
+        ],
+        [
+          "The committee approved the new budget proposal this morning ..."
+        ],
+        [
+          "The committee approved the new budget proposal this morning–"
+        ],
+        [
+          "The committee approved the new budget proposal this morning .\n"
+        ],
+        [
+          "The committee approved the new budget proposal this morning—"
+        ],
+        [
+          "The committee approved the new budget proposal this morning,"
+        ],
+        [
+          "The committee approved the new budget proposal this morning)."
+        ],
+        [
+          "The committee approved the new budget proposal this morning ;"
+        ],
+        [
+          "The committee approved the new budget proposal this morning?"
+        ],
+        [
+          "The committee approved the new budget proposal this friday."
+        ],
+        [
+          "She walked slowly through the old town under the rain."
+        ],
+        [
+          "She walked slowly through the old town under the rain;"
+        ],
+        [
+          "She walked slowly through the old town under the rain,"
+        ],
+        [
+          "She walked slowly through the old town under the rain.\n"
+        ],
+        [
+          "She walked slowly through the old town under the rain.."
+        ],
+        [
+          "She walked slowly through the old town under the rain…"
+        ],
+        [
+          "She walked slowly through the old town under the rain –"
+        ],
+        [
+          "She walked slowly through the old town under the rain.The"
+        ],
+        [
+          "She walked slowly through the old town under the rain!\n"
+        ],
+        [
+          "She walked slowly through the old town under the rain ..."
+        ],
+        [
+          "She walked slowly through the old town under the rain—"
+        ],
+        [
+          "She walked slowly through the old town under the rain --"
+        ],
+        [
+          "She walked slowly through the old town under the rain -"
+        ],
+        [
+          "She walked slowly through the old town under the rain..\n"
+        ],
+        [
+          "She walked slowly through the old town under the rain.D"
+        ],
+        [
+          "She walked slowly through the old town under the rain\n"
+        ],
+        [
+          "She walked slowly through the old town under the rain but"
+        ],
+        [
+          "She walked slowly through the old town under the rain.B"
+        ],
+        [
+          "She walked slowly through the old town under the rain.G"
+        ],
+        [
+          "She walked slowly through the old town under the rain.C"
+        ],
+        [
+          "She walked slowly through the old town under the rain.F"
+        ]
+      ],
+      "bit_sweep": null,
+      "frac_sweep": [
+        {
+          "frac": 0.1,
+          "KL_full": 0.1886124387383461,
+          "KL_trunc20": 0.09737191168916604,
+          "n_quant": 14
+        },
+        {
+          "frac": 0.25,
+          "KL_full": 0.19850295705218163,
+          "KL_trunc20": 0.10234717164366018,
+          "n_quant": 28
+        },
+        {
+          "frac": 0.5,
+          "KL_full": 0.3509029448032379,
+          "KL_trunc20": 0.18245155240098634,
+          "n_quant": 56
+        },
+        {
+          "frac": 0.75,
+          "KL_full": 0.46964940263165367,
+          "KL_trunc20": 0.24558308117446445,
+          "n_quant": 84
+        },
+        {
+          "frac": 1.0,
+          "KL_full": 0.6194981097701996,
+          "KL_trunc20": 0.3080615608819893,
+          "n_quant": 112
+        }
+      ],
+      "cross_points": [
+        {
+          "bits": 4,
+          "KL_full": 0.6194981097701996,
+          "KL_trunc20": 0.3080615608819893,
+          "n_quant": 112
+        },
+        {
+          "bits": 8,
+          "KL_full": 0.0029556917725130916,
+          "KL_trunc20": 0.0015637191125221315,
+          "n_quant": 112
+        }
+      ]
+    },
+    {
+      "tag": "gemma",
+      "model_id": "unsloth/gemma-3-1b-pt",
+      "layer": 8,
+      "n_probes": 63,
+      "zero_noise": {
+        "KL_full": 0.0,
+        "KL_trunc20": 0.0
+      },
+      "probes": [
+        [
+          "The quick brown fox jumps over the lazy dog."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog,."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog;"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog…"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog:"
+        ],
+        [
+          "The quick brown fox jumps over the lazy watchdog."
+        ],
+        [
+          "The quick brown fox jumps over the lazy woman."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog'!"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dummy."
+        ],
+        [
+          "The quick brown fox jumps over the lazy babies."
+        ],
+        [
+          "The quick brown fox jumps over the lazy Dog."
+        ],
+        [
+          "The quick brown fox jumps over the lazy lizard."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog this"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog thanks"
+        ],
+        [
+          "The quick brown fox jumps over the lazy bitches."
+        ],
+        [
+          "The quick brown fox jumps over the lazy crocodile."
+        ],
+        [
+          "The quick brown fox jumps over the lazy kids."
+        ],
+        [
+          "The quick brown fox jumps over the lazy pony."
+        ],
+        [
+          "The quick brown fox jumps over the lazy kennel."
+        ],
+        [
+          "The quick brown fox jumps over the lazy dog,,"
+        ],
+        [
+          "The quick brown fox jumps over the lazy dogers"
+        ],
+        [
+          "The committee approved the new budget proposal this morning."
+        ],
+        [
+          "The committee approved the new budget proposal this morning;"
+        ],
+        [
+          "The committee approved the new budget proposal this morning,."
+        ],
+        [
+          "The committee approved the new budget proposition this morning."
+        ],
+        [
+          "The committee approved the new budget proposal this morning:"
+        ],
+        [
+          "The committee approved the new budget proposal this morning…"
+        ],
+        [
+          "The committee approved the new budget proposal this Morning."
+        ],
+        [
+          "The committee approved the new budget plans this morning."
+        ],
+        [
+          "The committee approved the new budget announcement this morning."
+        ],
+        [
+          "The committee approved the new budget proposal this morning</h2>"
+        ],
+        [
+          "The committee approved the new budget proposal this morning took"
+        ],
+        [
+          "The committee approved the new budget proposal this morning thanks"
+        ],
+        [
+          "The committee approved the new budget proposal this morning+."
+        ],
+        [
+          "The committee approved the new budget proposal this morning this"
+        ],
+        [
+          "The committee approved the new budget proposal this morning',"
+        ],
+        [
+          "The committee approved the new budget proposal this morning,,"
+        ],
+        [
+          "The committee approved the new budget proposal this morning.*"
+        ],
+        [
+          "The committee approved the new budget proposal this morningare"
+        ],
+        [
+          "The committee approved the new budget proposal this morning')"
+        ],
+        [
+          "The committee approved the new budget vote this morning."
+        ],
+        [
+          "The committee approved the new budget petition this morning."
+        ],
+        [
+          "She walked slowly through the old town under the rain."
+        ],
+        [
+          "She walked slowly through the old town under the rain;"
+        ],
+        [
+          "She walked slowly through the old town under the rain:"
+        ],
+        [
+          "She walked slowly through the old town under the rain,."
+        ],
+        [
+          "She walked slowly through the old town under the rain…"
+        ],
+        [
+          "She walked slowly through the old town under the rain</h2>"
+        ],
+        [
+          "She walked slowly through the old town under the rain?."
+        ],
+        [
+          "She walked slowly through the old town under the rain took"
+        ],
+        [
+          "She walked slowly through the old town under the rain7"
+        ],
+        [
+          "She walked slowly through the old town under the drizzle."
+        ],
+        [
+          "She walked slowly through the old town under the rain thanks"
+        ],
+        [
+          "She walked slowly through the old town under the rainwith"
+        ],
+        [
+          "She walked slowly through the old town under the rain this"
+        ],
+        [
+          "She walked slowly through the old town under the rain…。"
+        ],
+        [
+          "She walked slowly through the old town under the rain'!"
+        ],
+        [
+          "She walked slowly through the old town under the rain!.."
+        ],
+        [
+          "She walked slowly through the old town under the rainare"
+        ],
+        [
+          "She walked slowly through the old town under the rain,,"
+        ],
+        [
+          "She walked slowly through the old town under the rain+."
+        ],
+        [
+          "She walked slowly through the old town under the rain takes"
+        ],
+        [
+          "She walked slowly through the old town under the rain around"
+        ]
+      ],
+      "bit_sweep": null,
+      "frac_sweep": [
+        {
+          "frac": 0.1,
+          "KL_full": 0.02633501218062722,
+          "KL_trunc20": 0.019390871343646376,
+          "n_quant": 21
+        },
+        {
+          "frac": 0.25,
+          "KL_full": 0.10525214133251991,
+          "KL_trunc20": 0.0757657416379227,
+          "n_quant": 49
+        },
+        {
+          "frac": 0.5,
+          "KL_full": 0.16613803883378822,
+          "KL_trunc20": 0.11039117152529163,
+          "n_quant": 91
+        },
+        {
+          "frac": 0.75,
+          "KL_full": 0.25861160216173007,
+          "KL_trunc20": 0.17276120622686686,
+          "n_quant": 140
+        },
+        {
+          "frac": 1.0,
+          "KL_full": 0.37268391174692955,
+          "KL_trunc20": 0.2607654638824955,
+          "n_quant": 182
+        }
+      ],
+      "cross_points": [
+        {
+          "bits": 4,
+          "KL_full": 0.37268391174692955,
+          "KL_trunc20": 0.2607654638824955,
+          "n_quant": 182
+        },
+        {
+          "bits": 8,
+          "KL_full": 0.002011015811668975,
+          "KL_trunc20": 0.0013902265752207428,
+          "n_quant": 182
+        }
+      ]
+    }
+  ]
+}

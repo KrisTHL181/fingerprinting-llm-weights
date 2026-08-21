@@ -1,0 +1,20 @@
+Loading weights:   0%|          | 0/320 [00:00<?, ?it/s]Loading weights:   4%|▍         | 13/320 [00:00<00:02, 128.39it/s]Loading weights:  32%|███▏      | 102/320 [00:00<00:00, 574.06it/s]Loading weights:  58%|█████▊    | 187/320 [00:00<00:00, 693.47it/s]Loading weights:  86%|████████▌ | 274/320 [00:00<00:00, 759.79it/s]Loading weights: 100%|██████████| 320/320 [00:00<00:00, 688.55it/s]
+shared vocab: 108773
+probe contexts: 15  samples/ctx: 2
+  [1/15] ctx='The quick brown fox jumps over the lazy dog.' shared_top=7
+  [2/15] ctx='The quick brown fox jumps over the lazy dog.\\' shared_top=16
+  [3/15] ctx='The quick brown fox jumps over the lazy dogs.' shared_top=13
+  [4/15] ctx='The quick brown fox jumps over the lazy cat.' shared_top=8
+  [5/15] ctx='The quick brown fox jumps over the lazy dog!' shared_top=18
+  [6/15] ctx='The committee approved the new budget proposal this morning.' shared_top=3
+  [7/15] ctx='The committee approved the new budget proposal this morning.\\' shared_top=9
+  [8/15] ctx='The committee approved the new budget proposal this morning,' shared_top=4
+  [9/15] ctx='The committee approved the new budget proposal this morning .' shared_top=1
+  [10/15] ctx='The committee approved the new budget proposals this morning.' shared_top=4
+  [11/15] ctx='She walked slowly through the old town under the rain.' shared_top=16
+  [12/15] ctx='She walked slowly through the old town under the rain.\\' shared_top=13
+  [13/15] ctx='She walked slowly through the old town under the rain,' shared_top=18
+  [14/15] ctx='She walked slowly through the old town under the rain;' shared_top=12
+  [15/15] ctx='She walked slowly through the old town under the rain:' shared_top=15
+[record] 已存档指纹: ds_cov.json  (tokens=60, rank=14)
+[record] cov_trace=516.80  top3占比=73%

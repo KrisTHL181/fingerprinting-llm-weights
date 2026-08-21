@@ -1,0 +1,15 @@
+Loading weights:   0%|          | 0/320 [00:00<?, ?it/s]Loading weights:   0%|          | 1/320 [00:00<00:34,  9.20it/s]Loading weights:  25%|██▍       | 79/320 [00:00<00:00, 429.07it/s]Loading weights:  50%|████▉     | 159/320 [00:00<00:00, 583.62it/s]Loading weights:  75%|███████▍  | 239/320 [00:00<00:00, 662.31it/s]Loading weights:  99%|█████████▉| 318/320 [00:00<00:00, 706.46it/s]Loading weights: 100%|██████████| 320/320 [00:00<00:00, 613.52it/s]
+Qwen vocab=248077  DeepSeek vocab=129280  shared=108773
+[0] ctx='The quick brown fox jumps over the lazy dog'
+    shared next-tokens: Qwen=39 DS=17 hit=1 Jaccard=0.018 cos=nan corr=nan
+      '"'  Qwen=-6.63  DS=-5.80
+[1] ctx='The committee approved the new budget proposal this morning'
+    shared next-tokens: Qwen=39 DS=4 hit=0 Jaccard=0.000 cos=nan corr=nan
+[2] ctx='She walked slowly through the old town under the rain'
+    shared next-tokens: Qwen=38 DS=18 hit=1 Jaccard=0.018 cos=nan corr=nan
+      '...'  Qwen=-6.92  DS=-6.42
+
+=== 汇总 (共享词表对齐, 3 个上下文) ===
+shared top-k Jaccard 均值: 0.012  平均命中数: 0.7
+命中 token logp 余弦均值: 0.000  相关均值: 0.000
+解读: 越接近 1 表示两模型在共享词表上的预测越一致 -> 权重/预测越相似。

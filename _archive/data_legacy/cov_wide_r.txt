@@ -1,0 +1,83 @@
+Loading weights:   0%|          | 0/320 [00:00<?, ?it/s]Loading weights:   0%|          | 1/320 [00:00<00:35,  8.88it/s]Loading weights:  28%|██▊       | 88/320 [00:00<00:00, 479.83it/s]Loading weights:  56%|█████▋    | 180/320 [00:00<00:00, 656.78it/s]Loading weights:  85%|████████▌ | 273/320 [00:00<00:00, 750.41it/s]Loading weights: 100%|██████████| 320/320 [00:00<00:00, 660.36it/s]
+shared vocab: 108773/248077 Qwen tokens
+model layers=24 hidden=1024 layer=8
+reference: 'The quick brown fox jumps over the lazy dog.'  (21 candidates)
+    cand: 'The quick brown fox jumps over the lazy dog.'
+    cand: 'The quick brown fox jumps over the lazy dog.\\'
+    cand: 'The quick brown fox jumps over the lazy cat.'
+    cand: 'The quick brown fox jumps over the lazy dog!'
+    cand: 'The quick brown fox jumps over the lazy dog;'
+    cand: 'The quick brown fox jumps over the lazy puppy.'
+    cand: 'The quick brown fox jumps over the lazy dog .'
+    cand: 'The quick brown fox jumps over the lazy horse.'
+    cand: 'The quick brown fox jumps over the lazy dog.*'
+    cand: 'The quick brown fox jumps over the lazy wolf.'
+    cand: 'The quick brown fox jumps over the lazy goat.'
+    cand: 'The quick brown fox jumps over the lazy dog  \n'
+    cand: 'The quick brown fox jumps over the lazy dog."'
+    cand: 'The quick brown fox jumps over the lazy fish.'
+    cand: 'The quick brown fox jumps over the lazy mouse.'
+    cand: 'The quick brown fox jumps over the lazy dog\\n'
+    cand: 'The quick brown fox jumps over the lazy frog.'
+    cand: 'The quick brown fox jumps over the lazy turtle.'
+    cand: 'The quick brown fox jumps over the lazy dog.S'
+    cand: 'The quick brown fox jumps over the lazy dog\n'
+    cand: 'The quick brown fox jumps over the lazy kitten.'
+reference: 'The committee approved the new budget proposal this morning.'  (21 candidates)
+    cand: 'The committee approved the new budget proposal this morning.'
+    cand: 'The committee approved the new budget proposal this morning.\\'
+    cand: 'The committee approved the new budget proposal this morning .'
+    cand: 'The committee approved the new budget proposal this afternoon.'
+    cand: 'The committee approved the new budget proposal this morning!'
+    cand: 'The committee approved the new budget proposal this morning;'
+    cand: 'The committee approved the new budget proposal this mornings.'
+    cand: 'The committee approved the new budget proposal this morning\n\n'
+    cand: 'The committee approved the new Budget proposal this morning.'
+    cand: 'The committee approved the new budget proposal this morning\\n'
+    cand: 'The committee approved the new budget proposal this week.'
+    cand: 'The committee approved the new budget proposal this morning\n'
+    cand: 'The committee approved the new budget proposal this morning \n'
+    cand: 'The committee approved the new budget proposal this morning."'
+    cand: 'The committee approved the new budget proposal this morning..'
+    cand: 'The committee approved the new budget proposal this morning ,'
+    cand: 'The committee approved the new budget proposal this morning.*'
+    cand: 'The committee approved the new budget proposal this morning  \n'
+    cand: 'The committee approved the new budget proposal this weekend.'
+    cand: 'The committee approved the new budget request this morning.'
+    cand: 'The committee approved the new budget proposal this morning\t'
+reference: 'She walked slowly through the old town under the rain.'  (21 candidates)
+    cand: 'She walked slowly through the old town under the rain.'
+    cand: 'She walked slowly through the old town under the rain.\\'
+    cand: 'She walked slowly through the old town under the rain;'
+    cand: 'She walked slowly through the old town under the rain!'
+    cand: 'She walked slowly through the old city under the rain.'
+    cand: 'She walked slowly through the old town under the rain –'
+    cand: 'She walked slowly through the old town under the rain\n'
+    cand: 'She walked slowly through the old town under the rain —'
+    cand: 'She walked slowly through the old town under the rain.*'
+    cand: 'She walked slowly through the old town under the rain..'
+    cand: 'She walked slowly through the old town under the rain ,'
+    cand: 'She walked slowly through the old town under the rain .'
+    cand: 'She walked slowly through the old town under the rainfall.'
+    cand: 'She walked slowly through the old town under the rain \n'
+    cand: 'She walked slowly through the old town under the rain  \n'
+    cand: 'She walked slowly through the old town under the rain\n\n'
+    cand: 'He walked slowly through the old town under the rain.'
+    cand: 'She walked slowly through the old town under the rain."'
+    cand: 'She walked slow through the old town under the rain.'
+    cand: 'She walked slowly through the old town under the rainy.'
+    cand: 'She walked slowly through the old village under the rain.'
+
+  r(rel)     D_logp      D_cov   D_logp_cos
+----------------------------------------------
+   0.000     0.0000     0.0000       1.0000
+   0.020     0.0344     0.2419       0.9938
+   0.050     0.2228     0.6101       0.9549
+   0.100     0.5149     2.7277       0.8279
+   0.200     1.2996     3.4028       0.4664
+   0.400     2.3653    20.1155       0.3471
+   0.600     3.2741   189.0159       0.2196
+   1.000     3.8951  1500.3767       0.1425
+
+校准解读: r 增大 -> D_logp/D_cov 单调增大。给定目标模型的实测指纹差异, 反查 r 即隐含权重相对扰动尺度。
+线性拟合 D_logp ~= 4.238*r + 0.1952   (反查 r ≈ (D_logp - 0.1952)/4.238)

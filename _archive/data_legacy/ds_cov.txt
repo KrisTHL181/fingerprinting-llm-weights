@@ -1,0 +1,50 @@
+Loading weights:   0%|          | 0/320 [00:00<?, ?it/s]Loading weights:   0%|          | 1/320 [00:00<00:33,  9.48it/s]Loading weights:  25%|██▌       | 80/320 [00:00<00:00, 452.12it/s]Loading weights:  49%|████▉     | 157/320 [00:00<00:00, 584.44it/s]Loading weights:  73%|███████▎  | 234/320 [00:00<00:00, 655.46it/s]Loading weights:  98%|█████████▊| 312/320 [00:00<00:00, 696.47it/s]Loading weights: 100%|██████████| 320/320 [00:00<00:00, 614.23it/s]
+shared vocab: 108773/248077 Qwen tokens
+probe contexts: 24
+  [1/24] ctx='The quick brown fox jumps over the lazy dog.' shared_top=7
+  [2/24] ctx='The quick brown fox jumps over the lazy dog!' shared_top=18
+  [3/24] ctx='The quick brown fox jumps over the lazy dog .' shared_top=11
+  [4/24] ctx='The quick brown fox jumps over the lazy dog,' shared_top=15
+  [5/24] ctx='The quick brown fox jumps over the lazy horse.' shared_top=15
+  [6/24] ctx='The quick brown fox jumps over the lazy bird.' shared_top=20
+  [7/24] ctx='The quick brown fox jumps over the lazy sheep.' shared_top=10
+  [8/24] ctx='The quick brown fox jumps over the lazy fish.' shared_top=16
+  [9/24] ctx='The committee approved the new budget proposal this morning.' shared_top=3
+  [10/24] ctx='The committee approved the new budget proposal this morning,' shared_top=4
+  [11/24] ctx='The committee approved the new budget proposal this morning .' shared_top=1
+  [12/24] ctx='The committee approved the new budget proposals this morning.' shared_top=4
+  [13/24] ctx='The committee approved the new budget proposal this morning!' shared_top=2
+  [14/24] ctx='The committee approved the new budget proposal this morning\n\n' shared_top=19
+  [15/24] ctx='The committee approved the new budget proposal this week.' shared_top=2
+  [16/24] ctx='The committee approved the new budget proposal this morning\n' shared_top=4
+  [17/24] ctx='She walked slowly through the old town under the rain.' shared_top=16
+  [18/24] ctx='She walked slowly through the old town under the rain,' shared_top=18
+  [19/24] ctx='She walked slowly through the old town under the rains.' shared_top=15
+  [20/24] ctx='She walked slowly through the old town under the rain!' shared_top=17
+  [21/24] ctx='She walked slowly through the old-town under the rain.' shared_top=13
+  [22/24] ctx='She walked slowly through the old town under the rain and' shared_top=18
+  [23/24] ctx='She walked slowly through the old town under the rain –' shared_top=18
+  [24/24] ctx='She walked slowly through the old town under the rain\n' shared_top=17
+observed shared tokens across contexts: 80
+
+=== DeepSeek 协方差指纹 ===
+X shape: (24, 80)  (contexts x shared-tokens)
+cov_tok: (80, 80)  trace=544.714  ||cov||_F=232.053
+cov_ctx: (24, 24)  trace=158.588
+top eigenvalues of cov_tok (23 nonzero):
+  λ1 = 187.5562
+  λ2 = 91.6618
+  λ3 = 78.6857
+  λ4 = 42.1887
+  λ5 = 30.8223
+  λ6 = 19.5464
+  λ7 = 17.5375
+  λ8 = 15.4893
+  λ9 = 11.2401
+  λ10 = 9.9411
+  λ11 = 7.8783
+  λ12 = 5.9882
+累计方差占比 top-k: 66%, 79%, 93%
+
+已保存指纹: /root/autodl-tmp/work/ds_cov.json
+提示: 之后重探并比对 cov_tok_eigvals / logprob_mean, 若显著偏移则模型可能已改变。

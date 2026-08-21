@@ -1,0 +1,244 @@
+{
+  "model": "Qwen/Qwen3.5-0.8B",
+  "layer": 8,
+  "n_probes": 63,
+  "method": "LoRA-DPO (rm-static subset)",
+  "dpo": {
+    "steps": 200,
+    "bs": 4,
+    "n_data": 1000,
+    "lora_r": 16
+  },
+  "zero_noise": {
+    "KL_full": 0.0,
+    "KL_trunc20": 0.0
+  },
+  "dpo_sweep": [
+    {
+      "s": 0.0,
+      "KL_full": 0.0,
+      "KL_trunc20": 0.0
+    },
+    {
+      "s": 0.05,
+      "KL_full": 0.0009544187115453598,
+      "KL_trunc20": 0.0006859304830579767
+    },
+    {
+      "s": 0.1,
+      "KL_full": 0.001403983146513975,
+      "KL_trunc20": 0.0009035164310637536
+    },
+    {
+      "s": 0.2,
+      "KL_full": 0.003719686301395534,
+      "KL_trunc20": 0.002257165147937716
+    },
+    {
+      "s": 0.4,
+      "KL_full": 0.01139313778618262,
+      "KL_trunc20": 0.006639181248222788
+    },
+    {
+      "s": 0.7,
+      "KL_full": 0.03436873998079035,
+      "KL_trunc20": 0.020733731325774912
+    },
+    {
+      "s": 1.0,
+      "KL_full": 0.07006621233645886,
+      "KL_trunc20": 0.044184236388121335
+    }
+  ],
+  "probes": [
+    [
+      "The quick brown fox jumps over the lazy dog."
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog;"
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog,"
+    ],
+    [
+      "The quick brown fox jumps over the lazy wolf."
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog。"
+    ],
+    [
+      "The quick brown fox jumps over the lazy cow."
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog  \n"
+    ],
+    [
+      "The quick brown fox jumps over the lazy tiger."
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog.\""
+    ],
+    [
+      "The quick brown fox jumps over the lazy pig."
+    ],
+    [
+      "The quick brown fox jumps over the lazy sheep."
+    ],
+    [
+      "The quick brown fox jumps over the lazy chicken."
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog.,"
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog\\n"
+    ],
+    [
+      "The quick brown fox jumps over the lazy Dog."
+    ],
+    [
+      "The quick brown fox jumps over the lazy deer."
+    ],
+    [
+      "The quick brown fox jumps over the lazy person."
+    ],
+    [
+      "The quick brown fox jumps over the lazy dog.S"
+    ],
+    [
+      "The quick brown fox jumps over the lazy bat."
+    ],
+    [
+      "The quick brown fox jumps over the lazy pigeon."
+    ],
+    [
+      "The quick brown fox jumps over the lazy pigs."
+    ],
+    [
+      "The committee approved the new budget proposal this morning."
+    ],
+    [
+      "The committee approved the new budget proposal this morning,"
+    ],
+    [
+      "The committee approved the new budget proposals this morning."
+    ],
+    [
+      "The committee approved the new budget proposal this afternoon."
+    ],
+    [
+      "The committee approved the new budget proposal this morning;"
+    ],
+    [
+      "The committee approved the new budget proposal this evening."
+    ],
+    [
+      "The committee approved the new Budget proposal this morning."
+    ],
+    [
+      "The committee approved the new budget proposal this morning\\n"
+    ],
+    [
+      "The committee approved the new budget proposal this week."
+    ],
+    [
+      "The committee approved the new budgets proposal this morning."
+    ],
+    [
+      "The committee approved the new budget proposal this morning。"
+    ],
+    [
+      "The committee approved the new budget proposal this month."
+    ],
+    [
+      "The committee approved the new budget proposal this morning.\""
+    ],
+    [
+      "The committee approved the new budget proposal this morning ,"
+    ],
+    [
+      "The committee approved the new budget suggestion this morning."
+    ],
+    [
+      "The committee approved the new budget proposal this morning  \n"
+    ],
+    [
+      "The committee approved the new budget proposition this morning."
+    ],
+    [
+      "The committee approved the new budget recommendation this morning."
+    ],
+    [
+      "The committee approved the new budget proposal this morning.,"
+    ],
+    [
+      "The committee approved the new budget proposal these morning."
+    ],
+    [
+      "The committee approved the new budget proposal this Monday."
+    ],
+    [
+      "She walked slowly through the old town under the rain."
+    ],
+    [
+      "She walked slowly through the old town under the rain,"
+    ],
+    [
+      "She walked slowly through the old town under the rain;"
+    ],
+    [
+      "She walked slowly through the old-town under the rain."
+    ],
+    [
+      "She walked slowly through the old town under the rain –"
+    ],
+    [
+      "She walked slowly through the old town under the rain —"
+    ],
+    [
+      "She walked slowly through the old town under the rain -"
+    ],
+    [
+      "She walked slowly through the old town under the rain ,"
+    ],
+    [
+      "She walked slowly through the old town under the rain—"
+    ],
+    [
+      "She walked slowly through the old town under the rainfall."
+    ],
+    [
+      "She walked slowly through the old town under the rain..."
+    ],
+    [
+      "She walked slowly through the old town under the rain。"
+    ],
+    [
+      "She walked slowly through the old town under the rain--"
+    ],
+    [
+      "She walked slowly through the old town under the rain  \n"
+    ],
+    [
+      "She walked slowly through the old town under the rain.\""
+    ],
+    [
+      "She walked slowly through the old town under the rainy."
+    ],
+    [
+      "She walked slowly through the old town under the rain…"
+    ],
+    [
+      "She walked slowly through the old town under the rain.D"
+    ],
+    [
+      "She walked slowly through the old town under the rain.T"
+    ],
+    [
+      "She walked slowly through the old town under the rain.C"
+    ],
+    [
+      "She walked slowly through the old town under the rain.E"
+    ]
+  ]
+}

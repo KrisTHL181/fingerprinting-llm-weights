@@ -1,0 +1,257 @@
+<!doctype html>
+<title>Near-Synonym Weight Fingerprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0E1116; --ink-2:#141a22; --ink-3:#1b232e;
+  --text:#E8ECF1; --muted:#9aa6b3; --faint:#6b7683;
+  --line:#262f3b; --line-2:#2f3a48;
+  --accent:#6C9BF2; --accent-ink:#0E1116;
+  --pos:#3ED4BE; --warn:#E8A05C; --crit:#C67BB0;
+  --card:#141a22;
+  --max:1000px;
+}
+:root:not([data-theme="light"]){ /* dark-first is default for this doc */
+  background:var(--ink); color:var(--text);
+}
+:root[data-theme="light"]{
+  --ink:#F6F4EF; --ink-2:#FBFAF6; --ink-3:#EFECE3;
+  --text:#20242c; --muted:#5b6470; --faint:#8a929d;
+  --line:#e0dcd1; --line-2:#d2cdc0;
+  --accent:#3B6FD8; --accent-ink:#F6F4EF;
+  --pos:#0E9380; --warn:#b26a1f; --crit:#8f4a78;
+  --card:#FBFAF6;
+  background:var(--ink); color:var(--text);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ background:var(--ink); color:var(--text); }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--ink); color:var(--text);
+  font-family:"IBM Plex Sans",system-ui,sans-serif; line-height:1.6;
+  font-size:16.5px; -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent); color:var(--accent-ink)}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+.wrap{max-width:var(--max); margin:0 auto; padding:0 24px}
+a{color:var(--accent); text-decoration:none}
+
+/* ---------- hero ---------- */
+.hero{padding:96px 0 40px; border-bottom:1px solid var(--line)}
+.kicker{font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--faint); margin:0 0 18px}
+h1{
+  font-family:"Fraunces",serif; font-weight:500; font-size:clamp(34px,5.6vw,56px);
+  line-height:1.05; margin:0 0 22px; text-wrap:balance; letter-spacing:-.01em;
+}
+.lede{font-size:19px; color:var(--muted); max-width:64ch; margin:0 0 30px; line-height:1.55}
+.meta{display:flex; flex-wrap:wrap; gap:10px; margin:0}
+.chip{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--muted);
+  border:1px solid var(--line-2); border-radius:999px; padding:4px 12px}
+.chip b{color:var(--text); font-weight:500}
+
+/* ---------- sections ---------- */
+section{padding:56px 0; border-bottom:1px solid var(--line)}
+.eyebrow{font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 8px}
+h2{font-family:"Fraunces",serif; font-weight:500; font-size:30px; line-height:1.15;
+  margin:0 0 14px; text-wrap:balance}
+.sec-lead{color:var(--muted); max-width:70ch; margin:0 0 26px; font-size:17px}
+h3{font-family:"IBM Plex Sans",sans-serif; font-weight:600; font-size:17px; margin:34px 0 10px}
+p{margin:0 0 14px; max-width:72ch}
+.tight{max-width:72ch}
+ul,ol{margin:0 0 14px; padding-left:22px; max-width:72ch}
+li{margin:4px 0}
+code{font-family:"IBM Plex Mono",monospace; font-size:.86em; background:var(--ink-3);
+  padding:1px 6px; border-radius:4px; color:var(--accent)}
+
+/* ---------- finding cards ---------- */
+.findings{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin:26px 0}
+.finding{border:1px solid var(--line); border-radius:12px; padding:20px 22px; background:var(--card)}
+.finding .n{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--faint); letter-spacing:.1em}
+.finding h4{margin:8px 0 8px; font-size:17px; font-weight:600}
+.finding p{margin:0; font-size:14.5px; color:var(--muted)}
+.pill{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px;
+  border-radius:999px; padding:3px 10px; margin-bottom:10px; letter-spacing:.05em}
+.pill.neg{background:color-mix(in srgb,var(--warn) 16%,transparent); color:var(--warn); border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
+.pill.pos{background:color-mix(in srgb,var(--pos) 16%,transparent); color:var(--pos); border:1px solid color-mix(in srgb,var(--pos) 40%,transparent)}
+.pill.neut{background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent); border:1px solid color-mix(in srgb,var(--accent) 40%,transparent)}
+
+/* ---------- tables ---------- */
+.tablewrap{overflow-x:auto; margin:18px 0; border:1px solid var(--line); border-radius:12px}
+table{border-collapse:collapse; width:100%; font-family:"IBM Plex Mono",monospace;
+  font-variant-numeric:tabular-nums; font-size:13.5px}
+caption{padding:12px 16px; text-align:left; font-family:"IBM Plex Sans",sans-serif;
+  font-size:12px; color:var(--faint); border-bottom:1px solid var(--line); background:var(--ink-3)}
+th,td{padding:9px 16px; text-align:right; white-space:nowrap}
+th{font-family:"IBM Plex Sans",sans-serif; font-weight:600; font-size:12px; color:var(--muted);
+  border-bottom:1px solid var(--line-2); background:var(--ink-2)}
+td{border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:none}
+th:first-child,td:first-child{text-align:left}
+td.hi{color:var(--accent); font-weight:500}
+td.pos{color:var(--pos)}
+td.warn{color:var(--warn)}
+
+/* ---------- callout ---------- */
+.callout{border-left:3px solid var(--accent); background:var(--ink-3);
+  padding:16px 20px; border-radius:0 10px 10px 0; margin:22px 0}
+.callout.neg{border-left-color:var(--warn)}
+.callout .t{font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--warn); margin-bottom:6px}
+.callout.neg .t{color:var(--warn)}
+.callout p{margin:0; font-size:15px}
+.callout p + p{margin-top:8px}
+
+/* ---------- footer ---------- */
+footer{padding:40px 0 70px; color:var(--faint); font-size:13px}
+footer .wrap{display:flex; flex-wrap:wrap; gap:18px; justify-content:space-between}
+
+@media (max-width:560px){
+  .hero{padding:64px 0 28px}
+  section{padding:40px 0}
+  h2{font-size:25px}
+}
+
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto}}
+</style>
+
+<main class="wrap">
+
+  <header class="hero">
+    <p class="kicker">中间层表征对齐 · 同义句探针 · 权重相似性推断</p>
+    <h1>用近义句作为探针，估算表征协方差，推断两个 LLM 是否权重几乎相同</h1>
+    <p class="lede">在受控小模型 <span class="mono">Qwen3.5-0.8B</span> 上做离散 token 优化，把"含义相同"定义为中间层表征接近；再把一组近义句当作模型的探针，用其表征协方差与 logprob 指纹去标定"权重扰动尺度 ↔ 指纹发散度"——并检验这一方法能否迁移到只有 top-20 logprobs 可用的云端大模型。</p>
+    <div class="meta">
+      <span class="chip">模型 <b>Qwen/Qwen3.5-0.8B</b> (24 层 · hidden 1024 · vocab 248k)</span>
+      <span class="chip">目标 <b>DeepSeek-V4-Flash</b> · 共享词表 <b>108,773</b> tokens</span>
+      <span class="chip">设备 <b>RTX 3080 Ti 12GB</b></span>
+    </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">方法</p>
+    <h2>整条流水线</h2>
+    <p class="sec-lead">四个环环相扣的步骤，最后一步给出"两个模型权重差多少"的定量估计。</p>
+    <ol class="tight">
+      <li><b>近义探针</b>：对每个参考句，在<b>共享子词表</b>内生成一组近义候选句（嵌入近邻 + 潜表征对齐筛选）。</li>
+      <li><b>指纹</b>：取每个候选在中间层的 pooled hidden，中心化后估<b>表征协方差 Σ</b>；另取每个候选的<b>逐句 logprob 向量</b>——后者与 DeepSeek API 能给的 top-20 logprobs 同构，是可迁移指纹。</li>
+      <li><b>噪声标定</b>：给 Qwen 权重加 <span class="mono">N(0,(r·σ)²)</span> 噪声，多尺度重算指纹，测发散度 <span class="mono">D(r)</span>，建立单调标定曲线。</li>
+      <li><b>推断</b>：实测目标模型指纹差异，反查标定曲线 → 隐含权重相对扰动尺度 <span class="mono">r</span>。同 tokenizer 下方法成立；跨 tokenizer 需共享词表对齐。</li>
+    </ol>
+  </section>
+
+  <section>
+    <p class="eyebrow">实验序列</p>
+    <h2>五个受控实验</h2>
+    <p class="sec-lead">每一步都先检验前提再前进——编号即实验顺序，每一步否定了/确认了一个子命题。</p>
+
+    <div class="findings">
+      <div class="finding">
+        <span class="pill neg">证伪</span>
+        <p class="n">01</p>
+        <h4>单层潜对齐不足以定义"含义相同"</h4>
+        <p>离散搜索总能找到中间表征极近（cos≈0.98）但语义破碎的序列。例：<span class="mono">…lazy dog.</span> → <span class="mono">…ducks Mark!</span>。表征是多对一映射，存在指数级退化解。</p>
+      </div>
+      <div class="finding">
+        <span class="pill neut">弱信号成立</span>
+        <p class="n">02</p>
+        <h4>hidden 距离是含义的有效弱信号</h4>
+        <p>真实同义句在<b>所有</b>中间层都比随机句更接近（cos 0.91–0.95 vs 0.60–0.73，gap 恒正 ~0.2–0.3）。可区分，但不足以保证。</p>
+      </div>
+      <div class="finding">
+        <span class="pill pos">可行</span>
+        <p class="n">03</p>
+        <h4>受限同义词搜索产出流畅近义句</h4>
+        <p>候选限定为嵌入近邻（共享词表内）+ 潜对齐作选择目标 → <span class="mono">morning→afternoon</span> 等合理替换，cos 0.99。</p>
+      </div>
+      <div class="finding">
+        <span class="pill pos">标定成立</span>
+        <p class="n">04</p>
+        <h4>协方差 + 权重噪声标定曲线单调</h4>
+        <p><span class="mono">D_logp ≈ 4.9·r</span>（层8·共享词表），层16 斜率 7.6，同 tokenizer 下 Qwen vs Qwen+5% 噪声 top-20 Jaccard = 0.82。</p>
+      </div>
+      <div class="finding">
+        <span class="pill warn">受限</span>
+        <p class="n">05</p>
+        <h4>跨模型对照受 tokenizer 制约</h4>
+        <p>共享词表对齐后 Qwen vs DeepSeek top-k Jaccard ≈ 0.01——两模型确实不同；命中的共享 token 上 logp 却很接近（如 <span class="mono">"</span> −6.63 vs −5.80）。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">核心结果</p>
+    <h2>权重噪声标定曲线</h2>
+    <p class="sec-lead">给 Qwen 权重加相对扰动 <span class="mono">r</span>（每张量 <span class="mono">N(0,(r·σ)²)</span>），近义候选集上的 logprob 指纹与表征协方差随之单调发散。共享词表限制下依然成立。</p>
+    <div class="tablewrap">
+      <table>
+        <caption>层 8 · 共享词表限制 · 21 个近义候选 / 参考句，3 参考句平均</caption>
+        <thead><tr><th>相对噪声 r</th><th>D_logp (相对 Frobenius)</th><th>D_cov (相对 Frobenius)</th><th>logprob 余弦</th></tr></thead>
+        <tbody>
+          <tr><td>0.000</td><td>0.0000</td><td>0.0000</td><td>1.0000</td></tr>
+          <tr><td>0.010</td><td class="hi">0.0093</td><td>0.1194</td><td>0.9983</td></tr>
+          <tr><td>0.030</td><td class="hi">0.0835</td><td>0.3415</td><td>0.9793</td></tr>
+          <tr><td>0.060</td><td class="hi">0.2493</td><td>0.6932</td><td>0.9164</td></tr>
+          <tr><td>0.100</td><td class="hi">0.4728</td><td>1.1441</td><td>0.8441</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tight">线性拟合：<span class="mono">D_logp ≈ 4.88·r − 0.032</span>，反查 <span class="mono">r ≈ (D_logp + 0.032) / 4.88</span>。D_cov 更敏感（≈14·r），可用作更细指纹。</p>
+
+    <h3>鲁棒性</h3>
+    <div class="tablewrap">
+      <table>
+        <caption>不同配置下的标定斜率（均单调）</caption>
+        <thead><tr><th>配置</th><th>斜率 d(D_logp)/dr</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>层 8 · 无共享限制</td><td class="hi">5.22</td><td>全词表候选</td></tr>
+          <tr><td>层 16 · 无共享限制</td><td class="hi">7.59</td><td>更深层更敏感</td></tr>
+          <tr><td>层 8 · 共享词表</td><td class="hi">4.88</td><td>与可迁移前提一致</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <p class="t">判别力检验 · 前提的边界</p>
+      <p>真实同义句在所有中间层都显著比随机句更接近：层 16 处同义 cos 0.922 vs 随机 0.600（gap 0.322）。所以"hidden 距离"是含义的<b>弱信号</b>（必要方向的判据），但因多对一结构，它<b>不充分</b>——不能作为无约束的生成准则。</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">迁移</p>
+    <h2>从受控小模型到云端大模型</h2>
+    <p class="sec-lead">核心前提：生成的离散序列只用共享子词表 token，因此天然可被目标 tokenizer 无损切分。跨模型比较需在共享词表上对齐。</p>
+    <ul class="tight">
+      <li><b>同 tokenizer 控制</b>（方法有效性证明）：Qwen vs Qwen+5% 噪声的 next-token top-20 Jaccard = <span class="mono">0.82</span>——方法能干净地检测权重变化。</li>
+      <li><b>跨 tokenizer</b>：原始 token 字符串比较零重叠是假象，源于两模型词表/切分不同；共享词表对齐后 Jaccard ≈ <span class="mono">0.012</span>，命中的共享 token 上 logp 高度接近。</li>
+      <li><b>API 限制</b>：DeepSeek 为推理模型，需 <span class="mono">thinking disabled</span> 且<b>不设 temperature=0</b>（否则 top-k logprobs 退化为 0.0/−9999 占位），且 top_logprobs 上限 20。</li>
+    </ul>
+    <div class="callout neg">
+      <p class="t">诚实的结论</p>
+      <p>Qwen 与 DeepSeek 是<b>真正不同的模型</b>（架构/大小/训练不同），共享词表上的 top-k 预测重叠极低（Jaccard≈0.01）。对它们，"权重是否几乎相同"的答案是否定的——这由跨架构差异主导，而非权重噪声尺度能单独解释。标定方法的价值在于：<b>在相同 tokenizer / 相同架构内</b>，它能定量地把"指纹差异"映射回"权重扰动尺度 r"。</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">结论</p>
+    <h2>交付了什么</h2>
+    <ol class="tight">
+      <li>一个可复现的<b>离散 token 优化</b>库（HotFlip 梯度引导束搜索 + 受限同义词搜索），在共享子词表内生成潜对齐的近义句。</li>
+      <li>一条<b>验证过的权重相似性标定曲线</b>：<span class="mono">D_logp ≈ 4.9–7.6·r</span>，单调、多层/多配置稳健、共享词表一致。</li>
+      <li>对前提的<b>双向检验</b>：hidden 距离是含义的弱信号（成立）但不充分（证伪）；受限同义词空间 + 潜对齐能产出流畅近义句。</li>
+      <li>跨模型迁移的<b>可行性边界</b>：共享词表保证 token 级可迁移；但跨架构的 logprob 比较受 tokenizer 与 API top-20 限制，需共享词表对齐才可比。</li>
+    </ol>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span>Near-Synonym Weight Fingerprint · 2026-08-20</span>
+      <span class="mono">align.py · covariance_experiment.py · deepseek_compare.py · discriminative_check.py</span>
+    </div>
+  </footer>
+</main>
