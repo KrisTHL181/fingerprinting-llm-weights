@@ -1,0 +1,1667 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------- packages
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage[authoryear,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{microtype}
+\emergencystretch=1.5em
+
+% ---------------------------------------------------------------- macros
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\D}{\mathcal{D}}
+\newcommand{\V}{\mathcal{V}}
+\newcommand{\Vsh}{\mathcal{V}_{\mathrm{sh}}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\bhat}[1]{\hat{\bm{#1}}}
+\newcommand{\argmin}{\operatorname*{arg\,min}}
+\newcommand{\argmax}{\operatorname*{arg\,max}}
+\newcommand{\softmax}{\operatorname{softmax}}
+\newcommand{\KL}{\operatorname{KL}}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\theoremstyle{definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+
+\title{\bf Fingerprinting Language-Model Weights via the Distributional Divergence of\\ Transferable Low-Rank Probes}
+
+\author{Hanlin Tan}
+
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Determining whether two language models have (nearly) identical weights is
+central to model-copy detection, provenance attribution, and adversarial
+weight-tampering auditing, but is difficult because hidden states are
+inaccessible in production and because two models can produce identical outputs
+while differing in their parameters. We introduce a two-stage approach built on
+an observable, distribution-level signal. First, we generate
+\emph{representation-aligned probes}: sentences the model's own intermediate
+representation places near a common reference, so the probe set stays low-rank
+and concentrated across models, though the sentences differ on the surface.
+They are produced by a HotFlip-style discrete
+optimization over a shared subword vocabulary, a one-time \emph{white-box} step
+on a local open-weight model. Second, we measure their mean per-probe
+\emph{distributional divergence} (KL) of the induced next-token distributions
+as a fingerprint. Detection is \emph{black-box}, requiring only the top-$k$
+log-probabilities of the served model.
+
+The fingerprint is a monotone, sensitive detector of weight perturbation. In a
+ground-truth-controlled experiment on a local open-weight model, the detector,
+reading only the top-$20$ log-probabilities of the served checkpoint, fires on
+a $250$-step LoRA fine-tune ($D_{\mathrm{KL}} = 0.17$) and on a wholesale model
+swap ($D_{\mathrm{KL}} = 4.11$), an order of magnitude apart. Calibration under
+injected Gaussian noise of scale $r\sigma$ on three open-weight models
+(Qwen3.5-0.8B, Llama-3.2-1B, Gemma-3-1B) yields a divergence that grows
+quadratically in $r$, consistent with the Fisher-information prediction and
+stable across model families and the two Qwen layers ($L8$/$L16$). A zero-noise
+determinism check over the DeepSeek API confirms that the black-box readout is
+deterministic end to end against a live model.
+Across families, tokenizer mismatch drives the divergence to a
+saturated maximum, so a model swap is caught with a large margin
+($D_{\mathrm{KL}}=4.1$); within a family, a black-box statistic preserves the
+calibration at roughly half to three-quarters of the white-box magnitude.
+An ablation of the probe-construction role (\S\ref{sec:exp:ablate}) shows that
+representation alignment contributes a transferable, low-rank probe set, the
+property on which black-box cross-model comparison rests; it does not maximize
+the raw per-probe divergence.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Large language models are expensive to train, and their weights are the primary
+carrier of that investment. This raises a natural and increasingly practical
+question: given two models, can we determine whether their parameters are
+(nearly) identical? The question matters for at least three reasons. First,
+\emph{copy detection}: verifying whether a released checkpoint has been
+surreptitiously derived from a proprietary model. Second,
+\emph{provenance}: attributing a model to its training lineage. Third,
+\emph{tamper auditing}: detecting whether a served model has been silently
+modified, for instance, by a malicious actor injecting fine-tuned backdoors or
+by an operator swapping weights at a load balancer.
+
+Answering this question is hard for two coupled reasons. On one hand, the
+weights themselves are typically not exposed: a deployment only offers token
+distributions (or, at most, top-$k$ log-probabilities) through an API. On the
+other, \emph{output equivalence does not imply weight equivalence}: two very
+different parameterizations can realize the same input--output mapping, so
+agreement on a held-out set of prompts is a necessary but weak signal.
+
+We propose to sidestep both difficulties by exploiting the
+\emph{second-order} response of the model's observable distribution: the
+distributional divergence of the observable next-token distribution, whose
+quadratic response is controlled by the Fisher information. A model's weights
+induce a specific local geometry in representation space. If we can produce a
+set of sentences that map to a tight cluster under the model's own
+intermediate representation, then the way in which these
+representation-aligned sentences spread in next-token probability space is a
+signature of the weights themselves. Perturbing the weights perturbs this
+distributional geometry in a way that a single-output comparison cannot reveal.
+Throughout, ``alignment'' is defined relative to the model's own
+representation: the probes must land on (nearly) the same latent
+representation, and are \emph{not} required to be synonyms in any linguistic
+sense. The role of this alignment is structural: the probe set stays low-rank
+and concentrated when read on a different model, which is what makes the
+fingerprint transferable across models.
+
+Concretely, we make three contributions:
+
+\begin{enumerate}
+  \item \textbf{Constrained representation-aligned generation}
+  (\S\ref{sec:syn}): a discrete optimization procedure that, given a
+  reference sentence, emits multiple sentences the model's representation places
+  near it, so the probe set is low-rank and transferable across models, while
+  differing on the surface, using only tokens
+  from a restricted (shared) subword vocabulary. The output is always a discrete
+  token sequence, never a vector. Synthesis is a one-time white-box step
+  performed on a local open-weight model; detection reads only top-$k$
+  log-probabilities.
+
+  \item \textbf{Distributional-divergence fingerprinting}
+  (\S\ref{sec:cov}): a fingerprint defined as the mean per-probe next-token KL
+  divergence between two models, together with a two-sample change-detection
+  test (mean per-probe $D_{\mathrm{KL}}$ as the primary verdict, with a
+  per-token $\chi^2$ aggregate plus mean-vector and covariance-spectrum
+  diagnostics).
+
+  \item \textbf{Empirical calibration and limits} (\S\ref{sec:exp}): a
+  ground-truth-controlled black-box readout that, reading only the top-$k$
+  log-probabilities, detects fine-tuning, weight quantization, and wholesale
+  model swapping by a wide margin (\S\ref{sec:mods}); a calibration curve
+  showing that the fingerprint diverges monotonically with added Gaussian
+  weight noise, consistent across model families and the two Qwen layers
+  ($L8$/$L16$); a zero-noise determinism check over the DeepSeek
+  API; and a characterization of cross-family comparison in which tokenizer
+  mismatch drives the fingerprint to its maximal (saturated) signal, so a
+  change of model family is detected decisively, while fine-grained
+  attribution remains bounded.
+\end{enumerate}
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Discrete adversarial attacks.}
+Our representation-aligned generator descends from the family of gradient-based
+discrete text optimizers initiated by \citet{hotflip}, which approximates the
+effect of a token substitution by the inner product of the input-embedding
+gradient and the candidate embedding. Subsequent work refined this idea with
+beam search and constrained candidate sets \citep{textfooler}. We differ in
+purpose and in our candidate constraint. We optimize for \emph{preservation of
+the model's representation}, so the output must remain near the reference in the
+model's own representation, whereas HotFlip-style attacks seek a label flip. Our
+candidates are also drawn from a shared subword vocabulary, which is essential
+for cross-model comparison.
+
+\paragraph{Representation similarity.}
+Measuring the similarity of neural representations has a long history, with
+centered kernel alignment (CKA) \citep{cka} and representational similarity
+analysis \citep{rsa} as the canonical tools. These methods compare the
+\emph{internal activations} of two networks and thus require white-box access.
+Our fingerprint is instead computed on the observable log-probability surface,
+making it compatible with API-only deployments, while still being grounded in
+the intermediate representation through the probe-construction step.
+
+\paragraph{Model fingerprinting and extraction.}
+Model extraction attacks \citep{modelsteal} and watermarking
+\citep{watermark} both fingerprint a model's \emph{behavior}; weight-recovery
+attacks \citep{rolnick} recover the \emph{parameters} directly. Our work
+occupies the middle ground: we estimate a second-order statistic that is
+sensitive to the weights but does not require recovering them, and is
+observable without hidden states.
+
+\paragraph{Query-based model fingerprinting.}
+The closest prior art infers a model's origin by actively probing it with
+optimized queries \citep{teacherfingerprint}. We extend this line of work in
+two directions. First, our probes are \emph{actively synthesized} to be
+representation-aligned, placed together in the model's own intermediate
+representation; the signal is therefore a within-representation-cluster
+distributional divergence. Second, our statistic is the \emph{KL divergence}
+between the per-probe next-token distributions, which is far more sensitive to
+weight perturbation than their mean.
+
+\section{Problem Formulation}
+\label{sec:form}
+
+Let a language model $M_\theta$ be parameterized by weights $\theta \in \R^P$,
+with vocabulary $\V$ and input-embedding matrix $\bm{E} \in \R^{|\V| \times D}$.
+For an input token sequence $\bm{x} = (x_1, \dots, x_T) \in \V^T$, denote by
+$\bm{h}^{(\ell)}(\bm{x}) \in \R^{T \times D}$ the hidden states at intermediate
+layer $\ell$, and by $\bar{\bm{h}}^{(\ell)}(\bm{x}) = \frac1T
+\sum_t \bm{h}^{(\ell)}_t(\bm{x}) \in \R^D$ its mean-pooled sentence vector.
+The model maps a prefix to a next-token distribution
+$p_\theta(\cdot \mid \bm{x}) = \softmax(\bm{W} \bm{h}^{(L)}(\bm{x}))$ over the
+vocabulary.
+
+\paragraph{Goal.}
+Given black-box access to two models $M_\theta$ and $M_{\theta'}$ (top-$k$
+log-probabilities only), decide whether $\norm{\theta - \theta'} \le \epsilon$
+for a small $\epsilon$, i.e., whether their weights are nearly identical.
+
+\paragraph{Two-part strategy.}
+We first construct a \emph{probe set} $\mathcal{P} = \{\bm{x}^{(1)},
+\dots, \bm{x}^{(m)}\}$ of representation-aligned sentences, sentences the
+model's intermediate representation places near a common reference
+(\S\ref{sec:syn}). Each probe
+$\bm{x}^{(i)}$ induces an observable distribution $p_\theta(\cdot \mid
+\bm{x}^{(i)})$; we collect a fingerprint statistic from these distributions
+(\S\ref{sec:cov}). Equivalence is then tested by comparing two fingerprints
+collected at different times or from different models (\S\ref{sec:detect}).
+
+\section{Method}
+\label{sec:method}
+
+The fingerprinting procedure works in two roles with different access
+requirements. \emph{Probe synthesis} (\S\ref{sec:syn}) is a one-time
+white-box step: we construct the representation-aligned probes on a local
+open-weight model, using its intermediate hidden states to enforce latent
+alignment. \emph{Fingerprint readout and detection} (\S\ref{sec:cov},
+\S\ref{sec:detect}) are black-box: given a candidate served model, we collect
+the top-$k$ next-token log-probabilities induced by the probe set and compare
+them against a reference fingerprint. Only the readout stage assumes the model
+is served through an API that exposes token-level log-probabilities, specifically
+the top-$k$ next-token log-probabilities at each decoding position; a provider
+that withholds or quantizes them makes the readout unobservable, as noted in
+\S\ref{sec:disc}. The one-time white-box synthesis step does not compromise the
+black-box compatibility of the detection itself, which at query time needs only
+top-$k$ log-probabilities.
+
+\subsection{Constrained Representation-Aligned Generation}
+\label{sec:syn}
+
+We want, for a reference sentence $\bm{s}$ with latent representation
+$\bm{h}^\star = \bar{\bm{h}}^{(\ell)}(\bm{s})$, a collection of sentences
+$\{\bm{s}^{(j)}\}$ such that (i) each $\bm{s}^{(j)}$ is
+\emph{representation-aligned} to $\bm{s}$, placed near it by the model's own
+intermediate representation, and (ii) $\bm{s}^{(j)} \ne \bm{s}$ on
+the surface, and (iii) every token of $\bm{s}^{(j)}$ lies in a
+\emph{restricted subword vocabulary} $\Vsh \subseteq \V$.
+
+\paragraph{Alignment as a latent constraint.}
+The notion of alignment in (i) is deliberately \emph{model-relative}: two
+sentences count as aligned for our purposes exactly when the model's own
+intermediate representation places them in a tight cluster. We do not require,
+and in general do not obtain, synonymy in the linguistic sense. The pair
+\emph{``the lazy dog''} $\to$ \emph{``the lazy cat''} of \S\ref{sec:exp:syn}
+is an alignment of this model-relative kind, with no semantic requirement. The
+role of this requirement is structural: it yields a probe set that stays
+low-rank and concentrated when read on a different model, which is what keeps
+the black-box cross-model comparison of \S\ref{sec:exp:cross} well-conditioned.
+It is not a claim that the probes maximize the raw divergence
+(\S\ref{sec:exp:ablate}). We operationalize (i) as the
+requirement that the pooled intermediate representation be close to the
+reference:
+\begin{equation}
+  \bm{s}^{(j)} = \argmin_{\bm{x} \in (\Vsh)^T}
+  \ \norm{\bar{\bm{h}}^{(\ell)}(\bm{x}) - \bm{h}^\star}^2
+  \ \ \text{s.t.}\ \ \bm{x} \ne \bm{s},
+  \label{eq:align}
+\end{equation}
+Because $\bm{x}$ ranges over a discrete set, we optimize
+Eq.~\eqref{eq:align} by a discrete search whose candidate set is motivated by
+first-order gradient intuition; as explained next, the search itself is
+instantiated with embedding neighbors and exact re-scoring; the first-order
+score is degenerate at the reference and is not used.
+
+\paragraph{HotFlip-style search.}
+A first-order Taylor expansion suggests an approximate change in the alignment
+loss $\mathcal{L}(\bm{x}) = \norm{\bar{\bm{h}}^{(\ell)}(\bm{x}) - \bm{h}^\star}^2$
+when token $x_i$ is replaced by token $t$,
+\begin{equation}
+  \Delta \mathcal{L}(i, t) \ \approx\ \bm{g}_i^\top \bm{e}_t,
+  \label{eq:hotflip}
+\end{equation}
+where $\bm{e}_i \in \R^D$ is the input embedding of token $x_i$,
+$\bm{g}_i = \nabla_{\bm{e}_i} \mathcal{L}$, and $\bm{e}_t$ is the embedding of
+candidate token $t$. This gradient-guided score is, however, degenerate exactly
+at the reference that anchors the search: the alignment loss is minimized by the
+reference itself, so its gradient vanishes there and the first-order score of
+Eq.~\eqref{eq:hotflip} is identically zero for every substitution. We therefore
+treat Eq.~\eqref{eq:hotflip} as motivation only, since the search does not use
+it, and \emph{instantiate} the search with a restricted candidate set,
+re-scoring candidates exactly (Algorithm~\ref{alg:syn}). For each position the
+candidates are the $q$ nearest \emph{embedding neighbors} of the current token
+within $\Vsh$; neighbors are surface-different from the reference by
+construction, so no explicit diversity term is needed. We then \emph{exactly}
+re-score every candidate substitution with a forward pass, evaluating
+$\mathcal{L}$ directly with no first-order approximation, and accept
+the one that most reduces the alignment loss.
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.94\linewidth}
+\smallskip
+{\small\ttfamily
+Algorithm~1: Embedding-neighbor representation-aligned generation.\par\smallskip
+\hangindent=1.5em \textbf{Input:} reference $\bm{s}$, layer $\ell$, shared
+vocab $\Vsh$, neighbor count $q$.\par
+\hangindent=1.5em $\bm{h}^\star \gets \bar{\bm{h}}^{(\ell)}(\bm{s})$\par
+\hangindent=1.5em $\mathcal{C} \gets \bigcup_i \big\{ (i,t) : t \in \Vsh,\
+t \ne s_i,\ t \in \mathrm{NN}_q(s_i) \big\}$\par
+\hangindent=1.5em $\bm{x}^\star \gets \argmin_{(i,t) \in \mathcal{C}}\
+\norm{\bar{\bm{h}}^{(\ell)}(\bm{x}_{i\to t}) - \bm{h}^\star}^2$\par
+\hangindent=1.5em \quad ($\bm{x}_{i\to t}$ denotes $\bm{s}$ with token $i$
+replaced by $t$)\par
+\hangindent=1.5em \textbf{return} $\bm{x}^\star$ if it improves over $\bm{s}$,
+else $\bm{s}$\par
+}
+\smallskip
+\end{minipage}}
+\caption{Embedding-neighbor representation-aligned generation.}
+\label{alg:syn}
+\end{figure}
+
+
+\subsection{Distributional-Divergence Fingerprint}
+\label{sec:cov}
+
+Given a probe set $\mathcal{P} = \{\bm{x}^{(1)}, \dots, \bm{x}^{(m)}\}$, each
+probe induces a next-token distribution over the vocabulary, which we represent
+by its log-probability vector restricted to the shared vocabulary $\Vsh$:
+\begin{equation}
+  \bm{\phi}_\theta(\bm{x}) = \big[\ \log p_\theta(t \mid \bm{x}) \big]_{t \in \Vsh}
+  \in \R^{|\Vsh|},
+  \label{eq:phi}
+\end{equation}
+so that $\bm{\phi}_\theta$ is always a vector over $\Vsh$. In the white-box
+(local) setting $\Vsh = \V$ and $\bm{\phi}$ is available for the full
+vocabulary, so $p_\theta(\cdot \mid \bm{x}) = \exp \bm{\phi}_\theta(\bm{x})$ is
+a genuine probability distribution over $\Vsh$. In the black-box (API) setting
+only the top-$k$ entries are returned; we form the \emph{top-$k$ truncated KL}
+by keeping the observed top-$k$ entries and collecting the unobserved tail mass
+into a single renormalized bucket. (An alternative, setting the unobserved
+remainder to a fixed floor $f$ without renormalizing, is the convention used in
+the saturation analysis of \S\ref{sec:theory}; the two differ at every
+perturbation scale.) Because the next-token probability
+mass concentrates in the top-$k$, the truncated statistic tracks the
+full-vocabulary KL in shape but at reduced magnitude, capturing roughly half
+to three-quarters of it in our calibration (\S\ref{sec:exp:calib}). It is a
+faithful detector of weight changes. To reduce sampling variance
+we average $\bm{\phi}$ over $S$ independent draws per probe, yielding per-probe
+means $\bar{\bm{\phi}}^{(i)}$.
+
+We define the \emph{fingerprint} of $M_\theta$ as the collection of per-probe
+next-token distributions $\{\bar{\bm{\phi}}^{(1)}, \dots,
+\bar{\bm{\phi}}^{(m)}\}$, and measure the difference between two models
+$\theta$ and $\theta'$ by the mean per-probe KL divergence
+\begin{equation}
+  D_{\mathrm{KL}}(\theta, \theta')
+  \;=\; \frac1m \sum_{i=1}^m
+    \KL\!\big(p_\theta(\cdot \mid \bm{x}^{(i)})\ \|\ p_{\theta'}(\cdot \mid \bm{x}^{(i)})\big),
+  \label{eq:dkl}
+\end{equation}
+computed over the \emph{union} of the two models' observed top-$k$ entries plus
+a single renormalized tail bucket, so no token in either model's top-$k$ falls
+in the other model's tail bucket. In the black-box setting this is the
+truncated KL divergence of the preceding paragraph.
+The KL divergence is the central object: it measures how far the next-token
+distributions induced by sentences that are \emph{representation-aligned},
+placed together by the model itself, have moved under a change of
+parameters, a quantity that is a direct functional of the weights but is not
+exposed by any single forward pass.
+
+\subsection{Theoretical Analysis}
+\label{sec:theory}
+
+
+\paragraph{Quadratic response and the Fisher information.}
+For a fixed probe $\bm{x}$, the next-token log-probability vector
+$\bm{\phi}_\theta(\bm{x})$ is a smooth function of the weights, with Jacobian
+$\bm{J}_\theta(\bm{x}) = \frac{\partial \bm{\phi}_\theta(\bm{x})}{\partial
+\theta}$. Its rows are score functions (Proposition~\ref{prop:score}, proved
+in \S\ref{sec:theory-app}), so the mean per-probe KL divergence between
+$\theta$ and $\theta + \delta$ admits the second-order expansion
+\begin{equation}
+  D_{\mathrm{KL}}(\theta, \theta+\delta)
+  = \tfrac12\, \delta^\top \bar{\bm{F}}_\theta\, \delta
+    + O(\norm{\delta}_2^3),
+  \qquad
+  \bar{\bm{F}}_\theta = \frac1m \sum_{i=1}^m
+    \bm{J}_\theta(\bm{x}^{(i)})^\top
+    \operatorname{diag}\!\big(p_\theta(\cdot \mid \bm{x}^{(i)})\big)
+    \bm{J}_\theta(\bm{x}^{(i)})
+  \;\succeq\; 0,
+  \label{eq:dklexpand}
+\end{equation}
+where the first-order term vanishes and $\bar{\bm{F}}_\theta$ is the
+probe-averaged Fisher information, a probability-weighted squared Jacobian
+(Proposition~\ref{prop:fisher}, \S\ref{sec:theory-app}). Because
+$\norm{\delta}_2 \propto r$ under the random-perturbation protocol of
+\S\ref{sec:exp:calib}, the divergence grows quadratically in $r$ for small
+perturbations and is monotone along any fixed direction.
+
+\paragraph{Saturation.}
+The quadratic regime is bounded: for an arbitrarily large $\delta$ the
+divergence does not grow without bound but rises to a stable ceiling set by the
+clean model's entropy and the log-probability floor
+(Proposition~\ref{prop:saturation}, \S\ref{sec:theory-app}). The perturbation
+response therefore passes through three regimes
+(Table~\ref{tab:regimes}), from a quadratic (Fisher-information) regime at
+small $\delta$, through a polynomial regime, to a saturated ceiling at large
+$\delta$. The fingerprint is a faithful, monotone proxy for weight change
+within the first two regimes, which is the operating range the detector is
+called upon to police.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Regimes of the fingerprint response to weight perturbation.}
+\label{tab:regimes}
+\begin{tabular}{lll}
+\toprule
+Regime & Response & Mechanism \\
+\midrule
+Small (sufficiently small $\norm{\delta}_2$) & $D_{\mathrm{KL}} \approx c\, r^2$ (quadratic) & Fisher information, Prop.~\ref{prop:fisher} \\
+Moderate & $D_{\mathrm{KL}} \approx c\, r^2 + c' r^3 + \cdots$ & higher-order terms, Prop.~\ref{prop:fisher} \\
+Large & $D_{\mathrm{KL}} \to -H(p_\theta) - \log f$ (saturation) & disjoint top-$k$ support + floor, Prop.~\ref{prop:saturation} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Adversarial invariance.}
+An adversary who knows the entire method can in principle engineer a targeted
+weight edit $\delta$ that leaves the fingerprint invariant to second order, but
+such an edit must lie in the null space of the stacked probe Jacobian
+(Proposition~\ref{prop:stealth}), a measure-zero subspace, and any edit with a
+nonzero visible component forces a global compensation whose norm is bounded
+below by Eq.~\eqref{eq:compcost}. The analysis, collected in
+\S\ref{sec:theory-app}, shows that these costs make successful evasion
+computationally prohibitive for the models considered, even though it is not
+ruled out in principle (Remark~\ref{rem:adv}).
+\subsection{Change Detection}
+\label{sec:detect}
+
+Given a reference collection of per-probe next-token distributions from
+$M_{\theta_0}$ and a re-probe collected from a candidate model, we combine the
+distributional-divergence statistic with a per-token test into a verdict.
+
+\paragraph{Per-probe KL divergence.}
+We estimate the per-probe next-token distributions from the observed
+log-probabilities (top-$k$ plus floor), and evaluate the mean per-probe KL
+divergence $D_{\mathrm{KL}}$ of Eq.~\eqref{eq:dkl}, which by the analysis of
+\S\ref{sec:theory} grows quadratically in any weight perturbation and is
+exactly zero in the no-change regime.
+
+\paragraph{Per-token two-sample test.}
+For each token $t$ observed with real data in both collections, we form the
+two-sample $z$-score
+\begin{equation}
+  z_t = \frac{\mu_{1,t} - \mu_{0,t}}{\sqrt{s_{0,t}^2/n_0 + s_{1,t}^2/n_1}},
+  \label{eq:z}
+\end{equation}
+where $\mu_{j,t}$ and $s_{j,t}^2$ are the sample mean and variance of token
+$t$'s log-probability across the probe set in collection $j$. When the two
+collections are identical (a deterministic API, as in \S\ref{sec:exp:api}), the
+\emph{numerator} $\mu_{1,t}-\mu_{0,t}$ vanishes while the across-probe variances
+remain nonzero, so $z_t = 0$; when both numerator and denominator vanish (a
+token constant across all probes) we set $z_t := 0$ by convention. (A nonzero
+numerator with a vanishing denominator, a token constant within each collection
+but at different values, does not arise for a deterministic readout and is
+excluded.) Summing the
+$z_t^2$ into a $\chi^2$ statistic with the number of
+compared tokens as degrees of freedom must be read as a \emph{heuristic}
+aggregate: the per-token scores from a
+single softmax are correlated (a shift in one token's log-probability moves the
+others), so the sum-of-squares overstates the evidence and should be treated as
+an upper-bound-style diagnostic. A principled alternative would be a
+multivariate Hotelling $T^2$ / Mahalanobis statistic on the joint log-probability
+vector, which we leave to future work; the change verdict rests primarily on
+$D_{\mathrm{KL}}$ of Eq.~\eqref{eq:dkl}.
+
+\paragraph{Mean-vector and covariance-spectrum diagnostics.}
+On the common-token subset, we also report how the distributions moved, using
+the mean vector $\bm{\mu}_j = \tfrac1m \sum_{i=1}^m \bar{\bm{\phi}}^{(i)}_j$ of
+the per-probe log-probability vectors (collection $j \in \{0,1\}$),
+\begin{equation}
+  D_{\mathrm{mean}} = \frac{\norm{\bm{\mu}_1 - \bm{\mu}_0}}{\norm{\bm{\mu}_0}} ,
+  \label{eq:dmean}
+\end{equation}
+and their covariance spectra $\bm{\lambda}_0, \bm{\lambda}_1$,
+\begin{equation}
+  D_{\mathrm{cov}} = \frac{\norm{\bm{\lambda}_1 - \bm{\lambda}_0}}{\norm{\bm{\lambda}_0}} .
+  \label{eq:dcov}
+\end{equation}
+These are diagnostic only: $D_{\mathrm{mean}}$ is sensitive but weak, and
+$D_{\mathrm{cov}}$ can saturate or even fall at large perturbations, so neither
+serves as the primary statistic (\S\ref{sec:exp:calib}).
+
+A model is declared \textsc{changed} if the primary statistic, the mean
+per-probe KL divergence $D_{\mathrm{KL}}$, exceeds a threshold set by its
+monotone calibration to $r$ (\S\ref{sec:exp:calib}); the per-token $\chi^2$
+aggregate of Eq.~\eqref{eq:z} is reported as a supporting diagnostic only,
+subject to the independence caveats noted above. In the zero-noise regime the
+re-probe reproduces the reference distributions exactly, so $D_{\mathrm{KL}} =
+0$, every $z_t = 0$ by convention, and the detector admits no false positives
+(\S\ref{sec:exp}).
+
+\section{Experiments}
+\label{sec:exp}
+
+\paragraph{Setup.}
+Local calibration experiments use three small open-weight models:
+\texttt{Qwen\slash Qwen3.5-0.8B} ($|\V|=248{,}077$ subword tokens),
+\texttt{unsloth\slash Llama-3.2-1B} ($|\V|=128{,}256$), and
+\texttt{unsloth\slash gemma-3-1b-pt} ($|\V|=262{,}145$), at intermediate
+layer $8$ (and layer $16$ for Qwen) with mean pooling; the black-box
+experiments use the DeepSeek API (\texttt{deepseek-v4-flash}, $|\V|=129{,}280$)
+which exposes
+top-$20$ log-probabilities with reasoning disabled. The shared subword
+vocabulary with DeepSeek contains $108{,}773$ tokens for Qwen ($43.8\%$ of its
+vocabulary), $70{,}663$ for Llama, and only $21{,}237$ for Gemma ($8.1\%$ of
+its much larger vocabulary), so the \emph{surface} overlap varies
+substantially across families. As \S\ref{sec:exp:cross} shows, however, even a
+large surface overlap does not translate into prediction overlap.
+
+\paragraph{Hyperparameters and reproducibility.}
+Probe generation uses three reference sentences, ``The quick brown fox jumps
+over the lazy dog.'', ``The committee approved the new budget proposal this
+morning.'', and ``She walked slowly through the old town under the rain.'',
+and, per reference, an embedding-neighbor candidate set with
+$k_{\mathrm{neighbors}} = 200$ (the neighbor count $q$ of
+Algorithm~\ref{alg:syn}), an inner top-$k$ of $6$ candidates retained per
+position, and $M = 20$ candidate probes. The observed token set for the
+per-token diagnostics is the top-$20$
+next-token log-probability surface (matching the API); locally (white-box), the
+KL divergence of Table~\ref{tab:calib} is evaluated over the full vocabulary with
+log-probabilities clamped at $-30$ to avoid underflow, and the black-box
+top-$20$ truncated variant is characterized separately in
+\S\ref{sec:exp:calib}. Calibration
+injects a single fixed Gaussian direction (seed $0$) rescaled by
+$r \in \{0, 0.02, 0.05, 0.10, 0.20, 0.40, 0.60, 1.00\}$, at intermediate layers
+$8$ and $16$ (only Qwen was run at $L16$; Llama and Gemma at $L8$). The API
+experiment uses $15$ probe contexts ($3$ references $\times$ $5$ surface
+variants, drawn from the $M = 20$ candidates) with $2$ samples each.
+
+\subsection{Probe Quality and the Limits of Alignment}
+\label{sec:exp:syn}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.48\linewidth]{../figures/fig_discriminative.pdf}
+\caption{Discriminative power of hidden-state cosine similarity, by layer.
+Representation-aligned (alg) pairs and unrelated (rnd) pairs are compared;
+the annotated gap (mean cosine difference) peaks at layer $16$.}
+\label{fig:disc}
+\end{figure}
+
+Intermediate-layer alignment alone is a \emph{necessary but not sufficient}
+condition for representation alignment: Sequences that align closely with $\bm{h}^\star$ are
+not always fluent or semantically coherent; the latent-cluster objective
+admits degenerate solutions; with an unconstrained candidate set the search collapses to
+the reference itself unchanged. Quantitatively, hidden-state cosine similarity
+carries only a weak discriminative signal: across layers, the cosine gap between
+representation-aligned (alg) and unrelated (rnd) sentence pairs is
+$0.18$--$0.32$, with aligned pairs at cosine $\approx0.85$--$0.95$ and
+unrelated pairs at $\approx0.60$--$0.73$ (Figure~\ref{fig:disc}). Restricting
+the candidate set to embedding-space neighbors within $\Vsh$
+(\S\ref{sec:syn}) resolves the fluency problem practically, yielding
+representation-aligned pairs such as \emph{``the lazy dog'' $\to$ ``the lazy
+cat''} while preserving alignment (mean cosine $\approx0.98$). This pair is
+\emph{not} a synonym pair in the linguistic sense; the two sentences differ in
+meaning to a human reader, yet the model's representation places them in a
+tight cluster, which is exactly the notion of alignment this paper relies on.
+
+\subsection{Calibration under Gaussian Weight Noise}
+\label{sec:exp:calib}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Weight-noise calibration: mean per-probe next-token KL divergence
+$D_{\mathrm{KL}}$ as a function of injected noise scale $r$ (a single fixed
+Gaussian direction rescaled by $r$, seed $0$), for the four open-weight
+configurations. $D_{\mathrm{KL}}$ is the full-vocabulary (white-box) KL with
+log-probabilities clamped at $-30$ to avoid underflow; the black-box top-$20$
+truncated KL is reported in \S\ref{sec:exp:calib}.}
+\label{tab:calib}
+\begin{tabular}{llc}
+\toprule
+Model & $r$ & $D_{\mathrm{KL}}$ \\
+\midrule
+\multirow{8}{*}{Qwen-0.8B (L8)} & 0.00 & 0.0000 \\
+ & 0.02 & 0.0164 \\
+ & 0.05 & 0.0992 \\
+ & 0.10 & 0.5246 \\
+ & 0.20 & 3.2754 \\
+ & 0.40 & 9.2107 \\
+ & 0.60 & 12.9029 \\
+ & 1.00 & 14.7039 \\
+\midrule
+\multirow{8}{*}{Qwen-0.8B (L16)} & 0.00 & 0.0000 \\
+ & 0.02 & 0.0191 \\
+ & 0.05 & 0.1216 \\
+ & 0.10 & 0.6119 \\
+ & 0.20 & 3.4085 \\
+ & 0.40 & 8.8989 \\
+ & 0.60 & 12.5548 \\
+ & 1.00 & 14.8757 \\
+\midrule
+\multirow{8}{*}{Llama-3.2-1B} & 0.00 & 0.0000 \\
+ & 0.02 & 0.0102 \\
+ & 0.05 & 0.0562 \\
+ & 0.10 & 0.2181 \\
+ & 0.20 & 1.0944 \\
+ & 0.40 & 5.7986 \\
+ & 0.60 & 9.6807 \\
+ & 1.00 & 11.3151 \\
+\midrule
+\multirow{8}{*}{Gemma-3-1b} & 0.00 & 0.0000 \\
+ & 0.02 & 0.0275 \\
+ & 0.05 & 0.2301 \\
+ & 0.10 & 0.9680 \\
+ & 0.20 & 4.7647 \\
+ & 0.40 & 13.1882 \\
+ & 0.60 & 23.0286 \\
+ & 1.00 & 26.6323 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{../figures/fig_calibration.pdf}
+\caption{Weight-noise calibration for the open-weight configurations. The mean
+per-probe next-token KL divergence $D_{\mathrm{KL}}$ grows monotonically in the
+noise scale $r$, quadratically at small $r$ (consistent with the
+Fisher-information prediction) and saturating at large $r$; on a log--log axis the small-scale
+regime appears as a slope-$2$ line. Dashed lines are quadratic fits in the
+small-scale regime.}
+\label{fig:calib}
+\end{figure}
+
+To validate that the distributional-divergence fingerprint tracks the weights,
+we inject zero-mean Gaussian noise into the weights of each model and measure
+how the mean per-probe next-token KL divergence from the clean model behaves as
+a function of the noise scale $r$. Precisely, the protocol draws \emph{one}
+fixed Gaussian direction per tensor (parameter scale $\sigma$, seed $0$) and
+rescales it by $r$: the perturbed weights are $\theta + r\hat\delta$ with
+$\hat\delta \sim \mathcal{N}(0, \sigma^2)$, so each calibration curve in
+Table~\ref{tab:calib} is a single realization along one fixed direction, with no
+averaging over draws (Remark~\ref{rem:linearity}). In every configuration
+$D_{\mathrm{KL}}$ grows monotonically in $r$, and within the small-scale regime
+it grows approximately \emph{quadratically}: increasing $r$ from $0.02$ to
+$0.1$ (a factor of $5$) raises $D_{\mathrm{KL}}$ by roughly a factor of $30$
+(e.g.\ Qwen, layer $8$: $0.016 \to 0.525$), consistent with the
+Fisher-information prediction $D_{\mathrm{KL}} \approx \tfrac12 \delta^\top
+\bar{\bm{F}}_\theta \delta \propto r^2$ of \S\ref{sec:theory}. At larger $r$
+the growth slows toward the entropy ceiling of
+Proposition~\ref{prop:saturation}. The same qualitative regime, quadratic at
+small $r$ and saturating at large $r$, holds across the four configurations, with
+Gemma the most sensitive and reaching the highest ceiling ($D_{\mathrm{KL}} =
+26.6$ at $r = 1.0$); only Qwen was evaluated at a second layer ($L8$ vs.\ $L16$).
+
+\paragraph{Error bars and the black-box top-$k$ statistic.}
+Over five independent noise directions (seeds $0$--$4$), $D_{\mathrm{KL}}$ is
+robust: the relative standard deviation is $15$--$40\%$ at small-to-moderate $r$
+and $4$--$10\%$ at saturation (e.g.\ Qwen $L8$: $0.574 \pm 0.226$ at $r = 0.10$,
+$15.47 \pm 0.62$ at $r = 1.0$), so the single-realization curve of
+Table~\ref{tab:calib} is representative and the monotone, quadratic-then-saturating
+shape is not an artifact of one noise direction. Gemma is the exception in its
+transition regime, where its response is strongly direction-dependent
+($2.84 \pm 2.46$ at $r = 0.10$), although its mean curve remains monotone.
+
+The full-vocabulary KL above is a white-box quantity. To check that the
+black-box top-$k$ statistic of \S\ref{sec:cov} preserves the calibration, we
+recompute the divergence from the top-$20$ next-tokens only, collecting the
+unobserved tail mass into a single renormalized bucket (the renormalized top-$k$
+truncated KL of \S\ref{sec:cov}). In the small-perturbation regime relevant to change
+detection ($r \le 0.1$) the truncated KL captures roughly half to three-quarters
+of the full-vocabulary KL and remains monotone (ratio $0.49 \to 0.63$ for Qwen
+$L8$, $0.51 \to 0.56$ for Llama, $0.68 \to 0.72$ for Gemma as $r$ runs $0.02 \to
+0.10$), so the top-$20$ restriction preserves the fingerprint's sensitivity at
+reduced magnitude. At larger $r$ the two statistics diverge as the top-$20$
+supports become disjoint, the saturation regime of
+Proposition~\ref{prop:saturation}, and are no longer directly comparable.
+The finite-$r$ value is likewise clamp-sensitive: for Qwen $L8$ it moves from
+$10.8$ (clamp $-15$) to $14.9$ ($-30$) to $15.6$ ($-60$) at $r = 1.0$, but the
+curves are still climbing at $r = 1.0$, and the shift ($+4.8$ nats over a
+$45$-nat swing in $-\log f$) is far weaker than the floor-dominated asymptotic
+ceiling $-H - \log f$ of Proposition~\ref{prop:saturation}, reflecting a support
+that is only partially disjoint at $r = 1.0$. The $-30$ value ($14.9$) matches
+Table~\ref{tab:calib} ($14.70$) within the $5$-seed spread ($15.47 \pm 0.62$).
+
+We chose $D_{\mathrm{KL}}$ after ablating the alternative statistics on the
+same perturbation protocol. The mean-vector divergence $D_{\mathrm{mean}}$ is
+monotonic but weak: it reaches only $0.545$ (Qwen, layer $8$) and $0.392$
+(Llama) at $r = 1.0$, against $14.70$ and $11.32$ for $D_{\mathrm{KL}}$. The
+covariance-spectrum divergence $D_{\mathrm{cov}}$ is more sensitive at small
+$r$ but \emph{non-monotonic}: its spectrum diverges at moderate $r$ and then
+collapses as the perturbed distribution concentrates (Qwen: $0.046 \to \cdots
+\to 0.659 \to 0.592$; Llama: $0.012 \to \cdots \to 0.841 \to 0.661$). The KL
+divergence alone combines monotonicity with sensitivity, which is why it serves
+as the primary statistic in \S\ref{sec:detect}; $D_{\mathrm{mean}}$ and
+$D_{\mathrm{cov}}$ are retained only as diagnostics. This monotone, quadratic
+small-scale calibration is the core evidence that the fingerprint tracks weight
+changes faithfully and sensitively. Inverting the \emph{mean} calibration curve
+maps an observed
+divergence back to the implied relative perturbation scale $r$, though
+per-realization inversion is unreliable where the directional variance is large
+(notably Gemma's transition regime, \S\ref{sec:exp:calib}).
+
+\subsection{Is Representation Alignment Necessary?}
+\label{sec:exp:ablate}
+
+The representation-alignment requirement of \S\ref{sec:syn} is the most
+expensive part of the method to engineer, so we subject it to a direct ablation.
+We hold the perturbation protocol and the probe count fixed ($60$ probes per
+condition) and compare three probe conditions under the same full-vocabulary KL
+as Table~\ref{tab:calib}: \emph{representation-aligned} probes (the
+near-synonyms of \S\ref{sec:syn}), \emph{random} sentences (random token
+sequences, matched in length, drawn from the shared subword vocabulary), and the
+\emph{reference} sentences themselves with no synthesis.
+
+\paragraph{Sensitivity.}
+The small-scale response does not support the view that representation alignment
+maximizes the raw divergence (Table~\ref{tab:ablate_repeq}). Synthesizing probes
+does help: the representation-aligned condition exceeds the reference-only
+condition by roughly $40$--$50\%$ over $r \in \{0.02,0.05,0.10\}$. But the
+random-sentence condition is \emph{more} sensitive still, producing roughly
+three to five times the divergence of the representation-aligned condition at
+the same small $r$ (e.g.\ $r=0.10$: $2.72$ vs.\ $0.53$). The random probes carry
+a higher next-token entropy ($6.7$ nats vs.\ $3.4$), and a higher-entropy
+conditional distribution amplifies a given logit shift into a larger KL change.
+Representation alignment does not buy raw sensitivity.
+
+\paragraph{Transferability and low-rank concentration.}
+The property that does distinguish the conditions, and that a cross-model
+fingerprint requires, is \emph{transferability}. A fingerprint is useful in the
+black-box setting of \S\ref{sec:exp:cross} only if the probe set induces a
+well-conditioned, low-dimensional signal on a \emph{different} model. We read
+each condition on both the source model (Qwen, layer $8$) and a target model
+(Llama-3.2-1B), re-encoding the probe texts on the target tokenizer as in
+\S\ref{sec:exp:cross}, and measure the spectral shape of the per-probe
+next-token log-probability covariance (Table~\ref{tab:ablate_conc}): the
+participation ratio $(\sum \lambda)^2 / \sum \lambda^2$, the fraction of trace in
+the top-3 eigenvalues, and the number of eigenvalues needed to reach $90\%$ of
+the trace. Representation-aligned probes are strongly concentrated on the
+source (participation ratio $3.3$, top-3 carrying $81\%$ of the trace) and,
+decisively, this concentration \emph{transfers} to the target model
+(participation ratio $3.0$, top-3 carrying $83\%$), because the probes land on a
+latent landmark the two models share. Random sentences are diffuse on both
+(participation ratio $7$--$10$, top-3 carrying roughly half of the trace). The
+pattern repeats for a second target family (Gemma-3-1b): its much smaller
+shared vocabulary with Qwen ($29{,}832$ tokens) yields a weaker but still clear
+concentration transfer, with representation-aligned probes remaining low-rank
+on Gemma (participation ratio $4.8$, top-3 $70\%$) while random sentences stay
+diffuse ($5.4$, $59\%$) (Table~\ref{tab:ablate_conc}). The
+representation-alignment requirement is thus load-bearing for the transferable,
+low-rank fingerprint that the cross-model comparison of \S\ref{sec:exp:cross}
+relies on, even though it does not maximize the raw per-probe divergence.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Sensitivity ablation on Qwen (layer 8): mean per-probe full-vocabulary
+KL divergence $D_{\mathrm{KL}}$ as a function of the noise scale $r$, under the
+protocol of Table~\ref{tab:calib}, for representation-aligned (alg), random
+(rnd), and reference-only (ref) probe conditions, each with $60$ probes. Mean
+cosine of the probes to the reference latent $\bm{h}^\star$ is also shown.}
+\label{tab:ablate_repeq}
+\begin{tabular}{lccccc}
+\toprule
+Condition & cos & $r{=}0.02$ & $0.05$ & $0.10$ & $0.20$ \\
+\midrule
+alg & $0.912$ & $0.0163$ & $0.1014$ & $0.5345$ & $3.30$ \\
+rnd & $0.648$ & $0.0471$ & $0.3684$ & $2.7154$ & $4.21$ \\
+ref & $0.913$ & $0.0113$ & $0.0696$ & $0.3914$ & $2.75$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Transferability ablation: spectral shape of the per-probe next-token
+log-probability covariance on the source model (Qwen, layer 8) and on each
+target model (Llama-3.2-1B; Gemma-3-1b), for the representation-aligned (alg),
+random (rnd), and reference (ref) conditions. Each target has its own probe set,
+synthesized within that target's shared subword vocabulary with Qwen ($115{,}771$
+tokens for Llama, $29{,}832$ for Gemma). \emph{effrank} is the participation
+ratio $(\sum\lambda)^2/\sum\lambda^2$, \emph{top3} the fraction of trace in the
+top-3 eigenvalues, \emph{var90} the number of eigenvalues to reach $90\%$ of the
+trace, and $H$ the mean per-probe next-token entropy (nats).}
+\label{tab:ablate_conc}
+\begin{tabular}{llccccc}
+\toprule
+Model & Condition & effrank & top3 & var90 & $H$ \\
+\midrule
+\multicolumn{6}{l}{\emph{Llama target experiment}}\\
+\midrule
+\multirow{3}{*}{Qwen}  & alg & $3.34$ & $0.811$ & $5$  & $3.38$ \\
+                       & rnd & $9.82$ & $0.493$ & $25$ & $6.74$ \\
+                       & ref & $1.19$ & $1.000$ & $1$  & $2.85$ \\
+\midrule
+\multirow{3}{*}{Llama} & alg & $3.02$ & $0.832$ & $5$  & $5.14$ \\
+                       & rnd & $7.14$ & $0.530$ & $24$ & $7.13$ \\
+                       & ref & $1.81$ & $1.000$ & $2$  & $4.56$ \\
+\midrule
+\multicolumn{6}{l}{\emph{Gemma target experiment}}\\
+\midrule
+\multirow{3}{*}{Qwen}  & alg & $4.05$ & $0.717$ & $9$  & $3.92$ \\
+                       & rnd & $10.30$ & $0.463$ & $27$ & $6.64$ \\
+                       & ref & $1.19$ & $1.000$ & $1$  & $2.85$ \\
+\midrule
+\multirow{3}{*}{Gemma} & alg & $4.82$ & $0.699$ & $7$  & $3.48$ \\
+                       & rnd & $5.39$ & $0.591$ & $20$ & $5.79$ \\
+                       & ref & $1.67$ & $1.000$ & $2$  & $2.93$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ground-Truth-Controlled Detection of Real Weight Edits}
+\label{sec:mods}
+
+The preceding experiments perturb the weights synthetically or compare across
+families. This subsection stages the positive case with full ground truth: we
+take a local open-weight model we control, apply a real weight edit, and ask
+whether the fingerprint, reading \emph{only} the top-$20$ next-token
+log-probabilities of the edited checkpoint, detects it. Every statistic reported
+here is computed from that black-box readout alone; no hidden state is used at
+detection time. The four edits, a LoRA fine-tune, a wholesale model swap,
+weight-only quantization, and an RL alignment, are tested on
+\texttt{Qwen/Qwen3.5-0.8B} at layer $8$ on a production GPU (NVIDIA RTX 3080 Ti),
+with the same $63$-probe set and shared-subword-vocabulary machinery as the
+rest of the paper ($|\Vsh|=108{,}773$).
+
+\paragraph{Fine-tuning (LoRA).}
+We fine-tuned the clean Qwen checkpoint with LoRA ($r=16$, $\alpha=32$, applied
+to the attention and MLP projections) on $2{,}500$ examples of
+\texttt{yahma/alpaca-cleaned}, training $250$ steps of causal-LM on the
+instruction--response text (loss $3.26 \to 1.05$). To measure \emph{sensitivity}
+rather than a single point, we treated the trained adapter's low-rank update
+$\Delta W$ as a fixed direction and read the fingerprint at interpolated scales
+$W_s = W_0 + s\,\Delta W$ for $s \in \{0.05,\dots,1.0\}$.
+Table~\ref{tab:lora} reports the mean per-probe KL divergence from the clean
+model.
+
+\begin{table}[t]
+\centering
+\small
+\caption{LoRA fine-tuning sensitivity on Qwen-0.8B (L8): mean per-probe
+$D_{\mathrm{KL}}$ between the clean model and the model with the LoRA adapter
+at interpolation scale $s$ ($W_s = W_0 + s\,\Delta W$), and the equivalent
+Gaussian-noise scale $r_{\mathrm{eq}}$ obtained by inverting the
+\S\ref{sec:exp:calib} calibration.}
+\label{tab:lora}
+\begin{tabular}{lccc}
+\toprule
+$s$ & $D_{\mathrm{KL}}$ (full) & $D_{\mathrm{KL}}$ (top-20) & $r_{\mathrm{eq}}$ \\
+\midrule
+0.00 & 0.0000 & 0.0000 & 0.000 \\
+0.05 & 0.0010 & 0.0008 & 0.001 \\
+0.10 & 0.0022 & 0.0018 & 0.003 \\
+0.20 & 0.0075 & 0.0061 & 0.009 \\
+0.40 & 0.0284 & 0.0234 & 0.024 \\
+0.70 & 0.0872 & 0.0735 & 0.046 \\
+1.00 & 0.1734 & 0.1477 & 0.059 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The response is monotone and, within the small-scale regime, approximately
+\emph{quadratic} in $s$ ($D_{\mathrm{KL}} \approx 0.174\,s^2$), exactly the
+Fisher-information behavior predicted by Proposition~\ref{prop:fisher} for a
+\emph{structured}, low-rank weight edit as well as for isotropic Gaussian
+noise. A full 250-step LoRA fine-tune is detected at
+$D_{\mathrm{KL}} = 0.173$, equivalent to Gaussian noise of scale
+$r_{\mathrm{eq}} \approx 0.06$, decisively above the smallest calibrated scale
+($r=0.02$, $D_{\mathrm{KL}}=0.016$); the fingerprint crosses that detection
+floor already at $s \approx 0.3$ (about $30\%$ of the trained adapter's
+strength). The black-box top-20 truncated statistic retains roughly $85\%$ of
+the full-vocabulary magnitude and remains monotone. Because the LoRA update is
+a fixed low-rank direction, the quadratic response in $s$ follows from the same
+second-order analysis as the noise calibration, confirming that distributional
+divergence detects fine-tuning with the same quadratic sensitivity as it
+detects arbitrary weight perturbation.
+
+\paragraph{Model swapping (Qwen $\to$ Llama).}
+We then tested the extreme case in which the served model is not a perturbed
+Qwen but a \emph{different} open-weight model, \texttt{unsloth/Llama-3.2-1B}.
+Because the two tokenizers differ, the probe set was re-tokenized on the Llama
+tokenizer and the fingerprint read over the $115{,}771$ subword tokens shared
+\emph{by surface} between the two vocabularies. The resulting mean per-probe KL
+is $D_{\mathrm{KL}} = 4.41$ (full) $/\,4.11$ (top-20), more than an
+\emph{order of magnitude} above the LoRA fine-tune ($0.17$) and above any
+reasonable fine-tuning signal. The two models' next-token supports are almost
+disjoint, so the comparison sits in the saturation regime of
+Proposition~\ref{prop:saturation}, exactly as predicted.
+Figure~\ref{fig:lora} summarizes both results. We conclude that distributional
+divergence \emph{reliably and sensitively} detects fine-tuning, and detects a
+wholesale model swap with an overwhelmingly large margin.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.98\linewidth]{../figures/fig_lora_sensitivity.pdf}
+\caption{Fingerprint sensitivity to fine-tuning and model swapping.
+(a)~Mean per-probe $D_{\mathrm{KL}}$ of a Qwen-0.8B checkpoint LoRA-tuned on
+alpaca-cleaned, vs.\ adapter scale $s$; the response is quadratic
+($\approx 0.17\,s^2$) and crosses the $r{=}0.02$ detection floor at
+$s \approx 0.3$. The dashed red line marks the Qwen$\to$Llama swap,
+$\sim 25\times$ larger. (b)~The same LoRA divergence mapped through the
+\S\ref{sec:exp:calib} calibration to an equivalent Gaussian-noise scale
+$r_{\mathrm{eq}}$, reaching $\approx 0.06$ at the full adapter.}
+\label{fig:lora}
+\end{figure}
+
+\paragraph{Weight-only quantization.}
+A further and increasingly common service-side modification is \emph{lossy
+weight quantization}: an operator serves a quantized (e.g.\ 4-bit or 8-bit)
+copy of a checkpoint to cut memory and latency, so the deployed model is not
+exactly the reference weights. Because quantization is a deterministic,
+structured, and comparatively small-norm edit, unlike the Gaussian noise of
+\S\ref{sec:exp:calib} or the low-rank drift of a LoRA adapter, it is a distinct
+stress test for the fingerprint. We implemented weight-only round-to-nearest
+(RTN) quantization with per-row absmax scaling on the Qwen-0.8B checkpoint
+(layer $8$, the same $63$-probe set and shared-subword-vocabulary machinery as
+the rest of the paper), quantizing all transformer linear layers to $k$ bits
+while keeping the input embeddings and the output projection in bf16, matching
+the configuration of typical quantized serving.
+Table~\ref{tab:quant} reports the mean per-probe $D_{\mathrm{KL}}$ from the
+clean model as a function of the bit width $k$.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Weight-only RTN quantization sensitivity on Qwen-0.8B (L8): mean
+per-probe $D_{\mathrm{KL}}$ between the clean model and the $k$-bit quantized
+model, and the equivalent Gaussian-noise scale $r_{\mathrm{eq}}$ obtained by
+inverting the \S\ref{sec:exp:calib} calibration.}
+\label{tab:quant}
+\begin{tabular}{lccc}
+\toprule
+$k$ & $D_{\mathrm{KL}}$ (full) & $D_{\mathrm{KL}}$ (top-20) & $r_{\mathrm{eq}}$ \\
+\midrule
+8 & 0.0021 & 0.0013 & 0.003 \\
+6 & 0.0205 & 0.0110 & 0.021 \\
+5 & 0.1116 & 0.0743 & 0.051 \\
+4 & 0.8221 & 0.5787 & 0.111 \\
+3 & 5.9032 & 4.5438 & 0.289 \\
+2 & 10.2025 & 8.3185 & 0.454 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The response is strictly monotone in the quantization strength: 8-bit
+weight-only quantization, whose per-tensor relative $\ell_2$ error is on the
+order of $10^{-3}$, is essentially \emph{invisible} to the fingerprint
+($D_{\mathrm{KL}} = 0.0021$, $r_{\mathrm{eq}} \approx 0.003$), an order of
+magnitude below the smallest calibrated scale ($r=0.02$,
+$D_{\mathrm{KL}}=0.016$). As the bit width drops below $6$, however, the signal
+emerges abruptly and decisively: 6-bit already reaches the detection floor
+($0.020$); 4-bit, the configuration most often chosen for memory-constrained
+serving, is detected at $D_{\mathrm{KL}}=0.82$ ($r_{\mathrm{eq}} \approx 0.11$),
+an order of magnitude above the floor; and 2-bit is detected at
+$D_{\mathrm{KL}}=10.2$ ($r_{\mathrm{eq}} \approx 0.45$). The black-box top-20
+truncated statistic retains roughly $70$--$85\%$ of the full-vocabulary
+magnitude and remains monotone (Table~\ref{tab:quant}), so a black-box detector
+observes the same verdict. This abrupt threshold reflects that quantization
+error is a structured, non-isotropic rounding whose step
+size $2^{-(k-1)}$ grows geometrically; the fingerprint therefore delineates
+exactly the operating range in which a quantized served model diverges from the
+reference weights.
+
+Because RTN quantization acts on a well-defined subset of parameters, we can
+probe its sensitivity continuously by quantizing only the first $f$ fraction of
+transformer layers to 4 bits and leaving the rest in bf16. The mean per-probe
+$D_{\mathrm{KL}}$ grows monotonically from $0.36$ ($f=0.10$) to $0.82$
+($f=1.00$), with the detection floor crossed already at $f=0.10$, so even a
+partially quantized model is detected, and the fingerprint tracks the extent of
+compression (Figure~\ref{fig:quant}).
+
+The same int4/int8 probe is consistent across model families: for
+Llama-3.2-1B and Gemma-3-1b, each compared against its \emph{own} clean
+fingerprint on the same shared-vocabulary probe set, 4-bit quantization is
+detected at $D_{\mathrm{KL}} = 0.62$ and $0.37$ respectively
+($r_{\mathrm{eq}} \approx 0.15$ and $0.06$), while 8-bit remains below the
+detection floor ($0.003$ and $0.002$) (Figure~\ref{fig:quant}). The qualitative
+regime, int4 detected and int8 invisible, thus holds across all three open-weight
+families of this paper, despite their differing vocabularies and scales.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.98\linewidth]{../figures/fig_quant_sensitivity.pdf}
+\caption{Fingerprint sensitivity to weight-only quantization.
+(a)~Mean per-probe $D_{\mathrm{KL}}$ of Qwen-0.8B (L8) vs.\ quantization bit
+width $k$ (full-vocabulary and top-20 truncated); the response is strictly
+monotone, reaching the detection floor between 6 and 8 bits. Cross-model-family
+int4/int8 points for Llama and Gemma are shown as diamonds. (b)~The same
+divergence as a function of the fraction $f$ of layers quantized to 4 bits, a
+continuous monotone curve crossing the $r{=}0.02$ floor already at $f\approx
+0.1$.}
+\label{fig:quant}
+\end{figure}
+
+\paragraph{Quantization as a boundary of detectability.}
+The 8-bit case is informative: because the fingerprint measures a second-order
+response that scales with the \emph{squared} visible weight change, a
+sufficiently small-norm structured edit, of which 8-bit weight-only rounding is
+a canonical example, falls below the detection floor of
+Eq.~\eqref{eq:floor} and is indistinguishable from the clean weights. This
+delineates precisely the operating range the fingerprint is called upon to
+police: within it the detector is a faithful, monotone proxy for weight change,
+with sensitivity bounded below, so high-bit-width lossy compression can evade
+it, while the configurations chosen for memory- or latency-constrained serving
+(4-bit and below) are detected decisively.
+
+\paragraph{Reinforcement-learning alignment (DPO).}
+A distinct and increasingly dominant way a served model diverges from the
+reference weights is \emph{preference-based alignment}: instead of supervised
+fine-tuning on input--output pairs, the model is optimized to prefer
+high-quality responses (RLHF/DPO). To test whether the fingerprint detects such
+an RL update, and how its sensitivity compares with the supervised LoRA
+fine-tune above, we trained a LoRA adapter ($r=16$, the same target modules) with
+\emph{direct preference optimization} (DPO) on $1{,}000$ preference pairs from a
+\texttt{Dahoas/rm-static} subset, using the DPO loss
+$\mathcal{L}=-\log\sigma\big(\beta[(\log p_\theta(y^+)-\log p_\theta(y^-))-(\log
+p_{\mathrm{ref}}(y^+)-\log p_{\mathrm{ref}}(y^-))]\big)$ with $\beta=0.1$ and the
+frozen clean Qwen model as the reference. As before we treated the trained
+adapter's low-rank update $\Delta W$ as a fixed direction and read the fingerprint
+at interpolated scales $W_s = W_0 + s\,\Delta W$. Table~\ref{tab:rl} and
+Figure~\ref{fig:rl} report the result.
+
+\begin{table}[t]
+\centering
+\small
+\caption{DPO (RL) alignment sensitivity on Qwen-0.8B (L8): mean per-probe
+$D_{\mathrm{KL}}$ between the clean model and the model with the LoRA adapter
+trained by direct preference optimization, at interpolation scale $s$ ($W_s =
+W_0 + s\,\Delta W$), and the equivalent Gaussian-noise scale
+$r_{\mathrm{eq}}$.}
+\label{tab:rl}
+\begin{tabular}{lccc}
+\toprule
+$s$ & $D_{\mathrm{KL}}$ (full) & $D_{\mathrm{KL}}$ (top-20) & $r_{\mathrm{eq}}$ \\
+\midrule
+0.00 & 0.0000 & 0.0000 & 0.000 \\
+0.05 & 0.0010 & 0.0007 & 0.001 \\
+0.10 & 0.0014 & 0.0009 & 0.002 \\
+0.20 & 0.0037 & 0.0023 & 0.005 \\
+0.40 & 0.0114 & 0.0066 & 0.014 \\
+0.70 & 0.0344 & 0.0207 & 0.027 \\
+1.00 & 0.0701 & 0.0442 & 0.039 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The RL adapter is \emph{detected}: $D_{\mathrm{KL}} = 0.070$ at the full
+adapter, $r_{\mathrm{eq}} \approx 0.04$, above the $r{=}0.02$ detection floor
+and crossed already at $s \approx 0.47$, but with a notably \emph{smaller}
+signature than the supervised LoRA fine-tune above ($0.173$,
+$r_{\mathrm{eq}} \approx 0.06$). This is consistent with DPO being a
+\emph{KL-regularized} objective that keeps the policy close to the reference: the
+resulting weight edit is smaller-norm and behaviorally more conservative than an
+unregularized SFT, so the induced next-token divergence is roughly $40\%$ of the
+SFT magnitude at comparable LoRA rank and training steps. The black-box top-20
+truncated statistic retains roughly $60\%$ of the full-vocabulary magnitude and
+remains monotone (Table~\ref{tab:rl}). RL-based alignment therefore occupies a
+middle ground in this paper: a genuine, detectable weight change whose
+fingerprint footprint is smaller than supervised fine-tuning, yet still within
+the quadratic (Fisher-information) regime; a model swap, in contrast, reaches
+the saturation regime.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.98\linewidth]{../figures/fig_rl_sensitivity.pdf}
+\caption{Fingerprint sensitivity to RL (DPO) versus supervised (LoRA)
+fine-tuning on Qwen-0.8B (L8).
+(a)~Mean per-probe $D_{\mathrm{KL}}$ vs.\ adapter scale $s$; both are monotone
+and cross the $r{=}0.02$ floor, but the DPO adapter is detected at only
+$\approx40\%$ of the SFT magnitude ($0.070$ vs.\ $0.173$ at $s=1$), consistent
+with DPO's KL regularization toward the reference. (b)~The same divergences
+mapped through the \S\ref{sec:exp:calib} calibration to equivalent Gaussian-noise
+scales $r_{\mathrm{eq}}$ ($\approx 0.04$ for DPO vs.\ $\approx 0.06$ for SFT).}
+\label{fig:rl}
+\end{figure}
+
+\paragraph{Change detection on a known perturbation.}
+As a complement to these real edits, we verify that the change-detection test
+of \S\ref{sec:detect} fires on a \emph{locally} perturbed model whose weights
+we control:
+Qwen-0.8B clean versus $N(0,(r\sigma)^2)$-perturbed, over the same probe set
+($\nu = 209$ compared tokens, the union of the top-$20$ next-tokens over the
+probes). At $r = 0$ the test is null ($\chi^2 = 0$, $D_{\mathrm{KL}} = 0$); at
+$r = 0.10$ it fires decisively ($\chi^2 = 1460$ versus a null expectation of
+$\nu = 209$; $D_{\mathrm{KL}} = 0.61$ full-vocabulary, or $0.40$ top-$20$
+truncated, the statistic a black-box detector would actually observe). The
+per-token $\chi^2$ is, however, insensitive at small perturbations: at
+$r \le 0.05$ it reports $p \approx 1$ even though $D_{\mathrm{KL}}$ is already
+$0.11$, because the perturbation inflates the across-probe variance in the
+$z$-score denominator of Eq.~\eqref{eq:z} at least as fast as it shifts the
+means, so the observed $\chi^2$ ($127$ at $r = 0.05$) sits \emph{below} its null
+expectation $\nu = 209$, and the test gains power only once
+the mean shift outgrows the variance inflation (by $r = 0.10$). This confirms $D_{\mathrm{KL}}$ as
+the primary verdict, with the $\chi^2$ aggregate supporting it (\S\ref{sec:detect}). The
+full-vocabulary $D_{\mathrm{KL}} = 0.61$ uses the same $-30$ clamp as
+Table~\ref{tab:calib} and is consistent with its $5$-seed spread
+($0.57 \pm 0.23$ at $r = 0.10$).
+
+\subsection{Zero-Noise Change Detection over the API}
+\label{sec:exp:api}
+
+This experiment verifies that the readout pipeline is deterministic end to end
+against a live API. We collect a reference distributional fingerprint over a
+probe set of $15$ representation-aligned contexts (two samples each) served by
+the DeepSeek API, then re-probe the same contexts. Under fixed parameters the
+API is deterministic, so the re-probe reproduces the reference statistics
+exactly: the per-token $\chi^2$ test is null ($\chi^2 = 0.00$, $df = 28$,
+$p = 1$) and the mean per-probe KL divergence is $D_{\mathrm{KL}} = 0.000$. The
+\textsc{unchanged} verdict and the absence of false positives follow
+necessarily from a deterministic re-probe. They are Type-I error control and
+carry no information about sensitivity. The positive case that the fingerprint
+responds monotonically to weight perturbation comes from the local calibration
+of \S\ref{sec:exp:calib} (Table~\ref{tab:calib}) and the ground-truth-controlled edits of \S\ref{sec:mods}
+which perturb a fixed model, in contrast to re-probing an identical one.
+Applying the same positive control to a perturbed model served through a
+production API is a practical deployment step left to future work
+(\S\ref{sec:disc}).
+
+The re-probe does fix two properties of the readout that the local runs of \S\ref{sec:mods} leave
+open. First, the recorded log-probability field is highly concentrated: it has
+trace $\operatorname{tr}(\bm{\Sigma}) = 516.8$ over $60$ observed tokens (rank
+$14$), with the top three eigenvalues accounting for $73\%$ of the total
+variance, a low-rank structure (Figure~\ref{fig:spectrum}) that reflects the
+fact that the probes collapse onto a single representation-alignment cluster.
+This spectral concentration characterizes the probe set; the change verdict
+rests on the divergence. Second, the pipeline from the top-$k$ readout to the
+$\chi^2$ and KL statistics runs unchanged against a real served model.
+
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.48\linewidth]{../figures/fig_spectrum.pdf}
+\caption{Spectrum of the per-probe log-probability covariance of the DeepSeek
+fingerprint (log scale). The rapid decay of eigenvalues, with the top three
+accounting for $73\%$ of the trace, reflects the concentration of
+representation-aligned probes onto a single cluster.}
+\label{fig:spectrum}
+\end{figure}
+
+\subsection{Cross-Model Comparison}
+\label{sec:exp:cross}
+
+The local open-weight models of \S\ref{sec:exp:calib} serve \emph{only} to
+generate the probes: the fingerprint readout is black-box, so a cross-family
+comparison reads the induced top-$k$ log-probabilities from whichever model is
+queried. Cross-family comparison is, in fact, the regime in which the
+fingerprint is \emph{most} decisive. Two mechanisms conspire to push the
+divergence onto its maximal ceiling. First, \emph{surface tokenizer overlap} is
+small: although the Qwen and DeepSeek families share $108{,}773$ subword
+tokens, that shared vocabulary is a small fraction of each family's full
+vocabulary, and surface-shared tokens need not be the ones that carry
+predictive mass. Second, and more importantly, \emph{model-difference
+saturation}: on a shared context, the top-$20$ next-tokens predicted by the two
+models have an average Jaccard overlap of only $0.012$ (on average $0.7$ shared
+tokens, out of roughly $39$ and $17$ predicted tokens respectively, the union
+of the top-$20$ next-tokens over the probe set, for Qwen and for DeepSeek). The
+representation-aligned probes therefore induce log-probability vectors whose
+supports are almost disjoint across the two models. This disjoint-support regime
+is exactly the large-$\delta$ saturation of Proposition~\ref{prop:saturation},
+realized here by a change of model family. It is the strongest form of detection
+the fingerprint offers: the per-probe divergence rises to its maximal,
+model-dependent ceiling, so \emph{any} distinct model family is
+caught with an unmistakably large margin. The point is quantified in
+\S\ref{sec:mods}: a wholesale Qwen$\to$Llama swap registers $D_{\mathrm{KL}} =
+4.41$ (full) $/\,4.11$ (top-$20$), more than an order of magnitude above a
+supervised fine-tune ($0.17$) and far beyond any calibration threshold. The
+very disjointness that frustrates \emph{within}-family calibration is, across
+families, the detector's greatest asset. The representation-aligned probes
+retain their low-rank concentration when read across model families
+(\S\ref{sec:exp:ablate}), so this cross-family readout rests on a
+well-conditioned signal.
+
+What saturation forecloses is not \emph{detection} but \emph{calibrated
+attribution}. Once the observed supports are disjoint, the divergence leaves the
+Fisher-quadratic regime of \S\ref{sec:theory}: it can no longer be inverted to a
+quantitative perturbation scale $r$, and a sufficiently large perturbation of
+the reference is asymptotically indistinguishable from a different model
+(Proposition~\ref{prop:saturation}). We can therefore assert with confidence
+that the served model is \emph{not} the reference, but not, from the divergence
+alone, precisely \emph{which} model it is or \emph{how far} its weights differ.
+Cross-family comparison is thus the clearest instantiation of change detection,
+while remaining a known bound on fine-grained attribution, distinct
+from the \emph{within}-family setting in which the model is fixed and only its
+weights are perturbed.
+
+\section{Discussion and Limitations}
+\label{sec:disc}
+
+\paragraph{What the distributional divergence buys over the mean and covariance.}
+The mean log-probability vector is a first-order summary that is dominated by
+the model's coarse language statistics and is relatively insensitive to the
+precise weights. The covariance of the per-probe log-probability vectors is
+more sensitive, but its response is dominated by the spectrum and can saturate
+or collapse at large perturbations. The per-probe distributional divergence
+(KL) combines the best of both: it is far more sensitive than the mean, since its
+quadratic response is governed by the Fisher information, which accumulates
+probability-weighted squared Jacobians; and it
+remains monotone where the covariance saturates, because the KL response is a
+positive quadratic form for small perturbations and a finite, entropy-governed
+ceiling for large ones.
+
+The black-box compatibility of the fingerprint is scoped as follows: probe
+synthesis requires white-box access to a local open-weight model, once and
+offline; the fingerprint readout and the change verdict require only the top-$k$
+next-token log-probabilities of the served model at query time. The detector
+itself never needs hidden states.
+
+\paragraph{Same-model detection across users.}
+The framework directly supports a natural extension: whether two parties are
+served by the same underlying model. Two collections of per-probe next-token
+distributions, one attributed to each party, are indistinguishable exactly when
+the two models induce identical distributions on the probe set, which is the
+equality decision $D_{\mathrm{KL}} \approx 0$ of \S\ref{sec:detect}. The zero-noise check of
+\S\ref{sec:exp:api} is this same test specialized to re-probing one endpoint;
+here the two collections come from two endpoints or two users instead. The three
+readings of ``same model'' line up with the regimes of
+Table~\ref{tab:regimes}: identical weights give $D_{\mathrm{KL}} = 0$, a shared
+base family (two independent fine-tunes of one checkpoint) gives a small nonzero
+divergence within the quadratic regime ($0.07$--$0.17$ for the adapters of
+\S\ref{sec:mods}), and a different model saturates at the ceiling ($4.11$,
+top-20, for the Qwen-to-Llama swap). A provider that controls routing can
+therefore detect account or key sharing by injecting the probe set into each
+session and comparing the two readouts, while treating the verdict as an
+equality test whose threshold must be calibrated against the probe count and
+the readout variance, not as a single determinism demonstration.
+
+Two conditions bound this extension. The protocol requires active injection
+into both sessions: observing natural traffic cannot guarantee that either
+party utters the probe set, so the equality verdict is available only where the
+detector can issue its own queries to both endpoints. And as with the whole
+method, the readout needs top-$k$ log-probabilities; a service that returns only
+sampled completions falls outside the framework (limitation~(i)). A quantized
+replica served to one user can also register a nonzero divergence against an
+unquantized replica ($0.82$ at 4-bit, Table~\ref{tab:quant}), so ``same model''
+must be read as ``same served weights,'' not ``same checkpoint after
+service-side compression.''
+
+\paragraph{Limitations.}
+(i) The method is fundamentally dependent on the service provider exposing
+token-level log-probabilities: if an API only returns a final answer, or
+quantizes or withholds its top-$k$ log-probabilities, the fingerprint cannot
+be extracted. (ii) Latent alignment is necessary but not
+sufficient for representation alignment, so probe quality depends on the
+candidate-restriction heuristic. (iii) The fingerprint
+is tokenizer-relative, so cross-family comparison detects a change of model
+family decisively. Tokenizer mismatch drives the
+divergence onto its saturated ceiling, bounding fine-grained quantitative
+comparison. (iv) The
+top-$k$ truncation of the API injects a log-probability floor ($-30$ locally,
+$-15$ for the API) below which the next-token distribution is only bounded,
+not measured; this
+floors the estimated $D_{\mathrm{KL}}$ and should be accounted for when setting
+detection thresholds.
+(v) Our calibration is demonstrated at a single model scale ($0.8$B); whether
+the quadratic (Fisher-information) regime holds at much larger scales is
+unverified. (vi) An adversary who
+controls the served model and knows the method is constrained but not
+precluded: second-order stealth is exactly null-space membership
+(Prop.~\ref{prop:stealth}), so any distribution-level detector inherits the
+output-equivalence ambiguity of \S\ref{sec:intro}. As Remark~\ref{rem:adv}
+argues, however, exploiting it requires engineering an edit into a
+Jacobian-defined, measure-zero subspace with an exact global compensation
+whose norm is bounded below by Eq.~\eqref{eq:compcost}, a computationally
+prohibitive task. Randomized or secret probe sets and robust-statistic
+variants remain prudent hardening. (vii) The monotone quadratic (Fisher-information) regime of
+\S\ref{sec:exp:calib}, which is invertible in the mean, has a finite radius:
+beyond the small-perturbation scale the fingerprint saturates toward the entropy
+ceiling (\S\ref{sec:theory}, Prop.~\ref{prop:saturation}), and a sufficiently
+large perturbation is indistinguishable from a different model, a blind spot
+that concerns \emph{attribution} and leaves \emph{detection} intact, just as in the cross-family setting
+of \S\ref{sec:exp:cross}. Per-direction
+inversion is additionally unreliable where the directional variance is large
+(limitation~(ix)).
+(viii) The positive case is demonstrated directly: in a locally controlled
+environment that simulates the black-box readout, the top-20 truncated
+statistic of \S\ref{sec:cov} applied to a served model we control, the detector
+successfully identifies both fine-tuning and wholesale model swapping by a wide
+margin (\S\ref{sec:mods}): a LoRA fine-tune registers $D_{\mathrm{KL}}=0.15$ and
+a Qwen$\to$Llama swap $D_{\mathrm{KL}}=4.11$ (top-$20$), against a $r{=}0.02$
+detection floor of $0.016$. The DeepSeek experiment (\S\ref{sec:exp:api})
+supplies the zero-noise determinism check over a real API; because a third-party
+API exposes no weights to perturb, the same positive control can only be staged
+on a self-hosted endpoint, a practical deployment step and a natural next
+extension. (ix) The calibration curves of \S\ref{sec:exp:calib} are reported along one
+fixed Gaussian direction (seed $0$). Over five directions the relative standard
+deviation of $D_{\mathrm{KL}}$ is $15$--$40\%$ at small-to-moderate $r$ and
+$4$--$10\%$ at saturation (Gemma up to $\approx$ the mean in its transition
+regime), so the qualitative conclusions are robust, though the
+single-realization values should not be read as precise expectations.
+
+\section{Conclusion}
+\label{sec:concl}
+
+We have shown that the per-probe distributional divergence (KL) of next-token
+distributions, induced by actively synthesized representation-aligned
+probes, is a practical and sensitive fingerprint of a language model's weights.
+The approach is black-box-compatible at detection time (requiring only the
+top-$k$ log-probabilities of the served model, with probe synthesis performed
+once on a local open-weight model), yields a monotonic calibration curve under
+injected Gaussian weight noise, and is consistent with a zero-noise determinism
+check over a production API. The central finding is conceptual: to detect weight equivalence, one
+should compare the \emph{second-order} response of the observable next-token
+distribution instead of its expectation. That response is governed by the Fisher
+information, and representation-aligned probes, sentences the model's own
+representation places together, provide the controlled setting in which that
+response is identifiable.
+
+\paragraph{Acknowledgments.} We thank the anonymous reviewers for their
+feedback.
+
+
+
+\appendix
+\section{Theoretical Analysis Details}
+\label{sec:theory-app}
+
+We collect here the derivations supporting \S\ref{sec:theory}. For a fixed
+probe $\bm{x}$, write $\bm{\phi}_\theta(\bm{x}) \in \R^{|\Vsh|}$ for the
+next-token log-probability vector restricted to the shared vocabulary
+(Eq.~\eqref{eq:phi}), and define its Jacobian with respect to the weights,
+\begin{equation}
+  \bm{J}_\theta(\bm{x}) = \frac{\partial \bm{\phi}_\theta(\bm{x})}{\partial \theta}
+    \in \R^{|\Vsh| \times P},
+  \label{eq:jacobian}
+\end{equation}
+which is well defined because $\bm{\phi}_\theta$ is a smooth function of the
+logits and the logits are smooth functions of $\theta$. Write
+$\bm{\phi}_i = \bm{\phi}_\theta(\bm{x}^{(i)})$ and
+$\bm{J}_i = \bm{J}_\theta(\bm{x}^{(i)})$.
+
+\subsection{The Jacobian is a score function}
+\label{sec:app-score}
+
+\begin{proposition}[The Jacobian is a score function]
+\label{prop:score}
+Let $z_t(\bm{x}) = [\bm{W}\bm{h}^{(L)}(\bm{x})]_t$ be the logit of token $t$.
+Then
+\begin{equation}
+  \big[\bm{J}_\theta(\bm{x})\big]_{t,:} \;=\;
+  \nabla_\theta z_t(\bm{x}) - \sum_{t' \in \V} p_\theta(t' \mid \bm{x})\,\nabla_\theta z_{t'}(\bm{x})
+  \;=\; \nabla_\theta \log p_\theta(t \mid \bm{x}),
+  \label{eq:score}
+\end{equation}
+where the subtraction sums over the \emph{full} vocabulary $\V$; it is the
+softmax normalizer and is deliberately not restricted to the index set $\Vsh$
+over which the vector $\bm{\phi}_\theta$ of Eq.~\eqref{eq:phi} is recorded; the
+resulting score is then read off at the $\Vsh$-indexed coordinates.
+\end{proposition}
+
+\subsection{Quadratic response and the Fisher information}
+\label{sec:app-fisher}
+
+\begin{proposition}[Quadratic response and the Fisher information]
+\label{prop:fisher}
+For a fixed probe $\bm{x}$, the KL divergence between the next-token
+distributions of $\theta$ and $\theta + \delta$ admits the second-order
+expansion
+\begin{equation}
+  \KL\!\big(p_\theta(\cdot \mid \bm{x})\ \|\ p_{\theta+\delta}(\cdot \mid \bm{x})\big)
+  \;=\; \tfrac12\, \delta^\top \bm{F}_\theta(\bm{x})\, \delta
+      + O(\norm{\delta}_2^3),
+  \label{eq:fisherexpand}
+\end{equation}
+where the first-order term vanishes identically (since
+$\E_{t \sim p_\theta(\cdot \mid \bm{x})}[\nabla_\theta \log p_\theta(t \mid \bm{x})] = 0$)
+and
+\begin{equation}
+  \bm{F}_\theta(\bm{x})
+  \;=\; \E_{t \sim p_\theta(\cdot \mid \bm{x})}
+      \big[\nabla_\theta \log p_\theta(t \mid \bm{x})
+          \,\nabla_\theta \log p_\theta(t \mid \bm{x})^\top\big]
+  \;\succeq\; 0
+  \label{eq:fisher}
+\end{equation}
+is the per-probe Fisher information. Averaging over the probe set gives the
+probe-averaged Fisher information $\bar{\bm{F}}_\theta = \frac1m \sum_{i=1}^m
+\bm{F}_\theta(\bm{x}^{(i)}) \succeq 0$, the coefficient of the mean per-probe
+expansion of Eq.~\eqref{eq:dklexpand}. Because $\norm{\delta}_2 \propto r$ under
+the random-perturbation protocol of \S\ref{sec:exp:calib}, the expected
+divergence grows \emph{quadratically} in $r$ for small perturbations and is
+monotone along any fixed perturbation direction. By
+Proposition~\ref{prop:score}, $\nabla_\theta \log p_\theta(t \mid \bm{x})$ is
+the $t$-th row of $\bm{J}_\theta(\bm{x})$, so
+$\bm{F}_\theta(\bm{x}) = \bm{J}_\theta(\bm{x})^\top
+\operatorname{diag}\!\big(p_\theta(\cdot \mid \bm{x})\big)
+\bm{J}_\theta(\bm{x})$: the Fisher information is a probability-weighted squared
+Jacobian. Because $\bar{\bm{F}}_\theta \succeq 0$, its kernel coincides with the
+set of directions in which \emph{every} observed per-token score has zero
+projection, the same null space $\mathcal{K}_\theta$ that drives the
+adversarial-invariance analysis below.
+\end{proposition}
+
+\begin{remark}
+\label{rem:linearity}
+Quadratic growth in $r$ and monotonicity hold in expectation and in the
+small-perturbation regime of Proposition~\ref{prop:fisher}. The monotonicity of
+a single realized calibration curve, in which one fixed noise direction is
+rescaled by $r$, is an empirical statement, as in \S\ref{sec:exp:calib}.
+Because the realized $D_{\mathrm{KL}}$ is, to leading order, the positive
+quadratic form $\tfrac12\, r^2 \hat\delta^\top \bar{\bm{F}}_\theta \hat\delta$
+with $\bar{\bm{F}}_\theta \succeq 0$, it increases with $r$ along any fixed
+direction; the mild sub-quadratic growth at larger $r$ (e.g.\ layer $8$ in
+Table~\ref{tab:calib}) is the onset of the saturation regime of
+Proposition~\ref{prop:saturation}.
+\end{remark}
+
+\subsection{Global Lipschitz property and saturation}
+\label{sec:app-sat}
+
+\begin{proposition}[Global Lipschitz property and saturation]
+\label{prop:saturation}
+For \emph{arbitrary} $\delta$ (not necessarily small), the log-probability
+vector is a Lipschitz function of the logits: since the log-softmax has
+Jacobian $I - \mathbf{1}\,\softmax(\bm{z})^\top$ of spectral norm at most
+$\sqrt{|\V|}$ (ranging from $1$ for a uniform distribution to $\sqrt{|\V|}$ for
+a peaked one),
+\begin{equation}
+  \norm{\bm{\phi}_{\theta+\delta}(\bm{x}) - \bm{\phi}_\theta(\bm{x})}_2
+  \;\le\; \sqrt{|\V|}\,\norm{\bm{z}_{\theta+\delta}(\bm{x}) - \bm{z}_\theta(\bm{x})}_2
+  \;\le\; \sqrt{|\V|}\,L_{\mathrm{net}}\,\norm{\delta}_2,
+  \label{eq:globlip}
+\end{equation}
+where $L_{\mathrm{net}}$ is the Lipschitz constant of the logit map in the
+weights. The boundedness of the divergence, however, does \emph{not} follow
+from this Lipschitz inequality, which is valid but non-tight and implies at most
+linear growth. It follows from the coordinate bound on $\bm{\phi}$ itself: in the
+black-box setting each coordinate lies in the interval $[f, 0]$ (a top-$k$
+log-probability is $\le 0$; a floored entry equals the floor $f$), so every
+log-probability vector, and hence every per-probe KL divergence, is finite and
+uniformly bounded in $\theta$. Unlike the small-scale quadratic regime of
+Proposition~\ref{prop:fisher}, however, the divergence does not grow without
+bound: it rises to a stable detection ceiling, a boundedness the Lipschitz
+estimate does not capture at all. For large $\delta$ the perturbed model's top-$k$ support becomes
+asymptotically disjoint from the clean model's (the same phenomenon as
+\S\ref{sec:exp:cross}), so the clean model's high-probability tokens are
+observed only at the floor $f$; the per-probe KL divergence then approaches
+\begin{equation}
+  \KL\!\big(p_\theta(\cdot \mid \bm{x}^{(i)})\ \|\ p_{\theta+\delta}(\cdot \mid \bm{x}^{(i)})\big)
+  \;\xrightarrow{\ \norm{\delta}_2 \to \infty\ }\;
+  -H\big(p_\theta(\cdot \mid \bm{x}^{(i)})\big) - \log f,
+  \label{eq:saturation}
+\end{equation}
+where $H$ denotes Shannon entropy and $f$ is the floor probability ($e^{-30}$
+in our local calibration). Averaging over probes, $D_{\mathrm{KL}}$ tends to
+$\frac1m \sum_i \big[-H(p_\theta(\cdot \mid \bm{x}^{(i)})) - \log f\big]$, a
+finite ceiling set by the clean model's entropy and the floor, independent of
+any further $\delta$. The $-\log f$ term is floor-dominated: any pair of models
+whose observed top-$k$ supports are disjoint saturate at the same uniform cap
+$-\log f \approx 30$ regardless of the model, so the only model-dependent part
+of the ceiling is the entropy term $-H(p_\theta)$. This is the black-box
+counterpart of the fully observable ceiling $\log|\Vsh| - H$ of the white-box
+analysis: in the absence of a floor the large-$\delta$ limit is a collapse
+toward the uniform distribution over $\Vsh$, whereas the floor replaces that
+limit with the disjoint-support one: the perturbed model's top-$k$ support
+leaves the clean model's high-probability tokens behind, and they are read at
+the floor $f$. A sufficiently large perturbation therefore saturates at the
+same maximal divergence as a change of model family. The detection verdict is
+decisive: whether the served model is a heavily perturbed relative or a
+completely new model, the fingerprint reports the same unambiguous maximal
+signal that it is not the reference. Only attribution, the identity of the
+distinct model, is left open.
+\end{proposition}
+
+Combining Propositions~\ref{prop:fisher} and \ref{prop:saturation}, the
+perturbation response passes through three regimes
+(Table~\ref{tab:regimes}). The quadratic regime is valid for sufficiently
+small $\norm{\delta}_2$; here
+$D_{\mathrm{KL}} \approx \tfrac12\, r^2 \hat\delta^\top \bar{\bm{F}}_\theta
+\hat\delta$, so the divergence scales as $r^2$ with a coefficient set by the
+Fisher information. The intermediate regime is polynomial, with higher-order
+terms becoming significant; the saturation regime carries the divergence to a
+maximal ceiling set by entropy and the floor. Inverting the monotone
+calibration curve of \S\ref{sec:exp:calib}, mapping an observed divergence back
+to a perturbation scale, is reliable within the first two regimes, where the
+response is strictly increasing in $r$; at saturation the fingerprint has
+already registered its strongest signal, the basis of decisive change and
+cross-family detection.
+
+\subsection{Adversarial invariance}
+\label{sec:app-adv}
+
+A skeptical reader may ask whether an adversary who knows the entire method,
+including probe construction and the divergence statistic, can engineer a
+targeted weight edit $\delta \in \R^P$ (for instance, injecting a backdoor into
+a served model) that evades detection. Formally, let
+$\bm{F} : \theta \mapsto \big(p_\theta(\cdot \mid \bm{x}^{(1)}), \dots,
+p_\theta(\cdot \mid \bm{x}^{(m)})\big)$ denote the fingerprint map, and suppose
+the adversary can reconstruct a probe set close to $\mathcal{P}$, has query
+access to top-$k$ log-probabilities, and seeks a perturbation $\delta$ that (i)
+implements a target edit supported on a ``backdoor block'' $S \subseteq \{1,
+\dots, P\}$, with $\norm{\delta_S}_2 \ge b > 0$ for some minimal strength $b$,
+and (ii) leaves the fingerprint invariant, $D_{\mathrm{KL}}(\theta,
+\theta+\delta) \approx 0$. Stack the probe Jacobians into
+\begin{equation}
+  \bm{G}_\theta =
+  \begin{bmatrix} \bm{J}_1 \\ \vdots \\ \bm{J}_m \end{bmatrix}
+  \in \R^{m|\Vsh| \times P},
+  \label{eq:gstack}
+\end{equation}
+so that the $m$ probe distributions, each a vector in $\R^{|\Vsh|}$, are
+observed only through the linear map $\delta \mapsto \bm{G}_\theta\delta$.
+Directions in $\mathcal{K}_\theta := \ker \bm{G}_\theta$ are exactly the
+directions of vanishing quadratic response of the fingerprint-mismatch
+objective $\delta \mapsto D_{\mathrm{KL}}(\theta, \theta+\delta)$: by
+Proposition~\ref{prop:fisher}, $\ker \bar{\bm{F}}_\theta = \ker \bm{G}_\theta$
+when $\bar{\bm{F}}_\theta$ is the \emph{observed-subset} Fisher information (the
+top-$k$ rows of $\bm{G}_\theta$); in the black-box setting the unobserved tail
+contributes to the true full-vocabulary Fisher but is dropped from
+$\bm{G}_\theta$, so the equality is exact only in white-box and approximate
+otherwise. Edits in $\mathcal{K}_\theta$ are invisible to second order by
+construction.
+
+\begin{proposition}[Stealth is null-space membership]
+\label{prop:stealth}
+The KL divergence responds to an edit $\delta$ as
+$D_{\mathrm{KL}}(\theta, \theta+\delta) = \tfrac12\, \delta^\top
+\bar{\bm{F}}_\theta\, \delta + O(\norm{\delta}_2^3)$
+(Proposition~\ref{prop:fisher}). A perturbation is invisible to second
+order, meaning the quadratic term vanishes, $\delta^\top \bar{\bm{F}}_\theta\, \delta
+= 0$, exactly when $\delta \in \mathcal{K}_\theta = \ker \bm{G}_\theta$, since
+$\ker \bar{\bm{F}}_\theta = \ker \bm{G}_\theta$ for the observed-subset Fisher
+scoped above (exact in white-box). Moreover, any $\delta \notin
+\mathcal{K}_\theta$ carries a \emph{detection floor} that survives the best
+possible first-order cancellation: because each \emph{observed} (top-$k$)
+next-token probability of the clean model is bounded below by
+$\gamma = \min_{i,\, t \in \mathrm{obs}} p_\theta(t \mid \bm{x}^{(i)}) > 0$, the
+minimum observed top-$k$ probability, distinct from the log-probability floor $f$
+of the truncated tail, the quadratic term obeys
+\begin{equation}
+  \delta^\top \bar{\bm{F}}_\theta\, \delta
+  \;=\; \frac1m \sum_{i=1}^m \sum_{t \in \Vsh}
+      p_\theta(t \mid \bm{x}^{(i)})\, \big(\bm{J}_{i,t}\,\delta\big)^2
+  \;\ge\; \frac{\gamma}{m}\, \norm{\bm{G}^{\mathrm{obs}}_\theta\,\delta}_2^2,
+  \label{eq:floor}
+\end{equation}
+where $\bm{J}_{i,t}$ is the $t$-th row of $\bm{J}_i$ and
+$\bm{G}^{\mathrm{obs}}_\theta$ denotes $\bm{G}_\theta$ restricted to the rows
+of the observed (top-$k$) tokens. Because $\gamma$ is the minimum
+\emph{observed} probability, this is a conservative lower bound over the
+observed, non-floored entries only; the floored tokens contribute nonnegatively
+and are omitted. Hence
+$D_{\mathrm{KL}}(\theta, \theta+\delta) \ge \frac{\gamma}{2m}\,
+\norm{\bm{G}^{\mathrm{obs}}_\theta\,\delta}_2^2 - O(\norm{\delta}_2^3)$. The irreducible term
+is quadratic in the \emph{visible} part of $\delta$ and invariant under
+$\delta \mapsto -\delta$, so no choice of the first-order response removes it.
+\end{proposition}
+
+\begin{proposition}[The cost of hiding a visible edit]
+\label{prop:comp}
+Fix a target edit $\bm{v}_B$ supported on $S$. If $\bm{v}_B \notin
+\mathcal{K}_\theta$, any first-order-stealthy perturbation of the form
+$\delta = \bm{v}_B + \bm{c}$ must satisfy $\bm{G}_\theta(\bm{v}_B + \bm{c}) =
+0$; the minimal-norm compensation is $\bm{c}^\star = -\bm{G}_\theta^{+}
+\bm{G}_\theta\,\bm{v}_B = -\Pi_{\mathrm{row}}\,\bm{v}_B$, where
+$\Pi_{\mathrm{row}}$ is the orthogonal projection onto the row space of
+$\bm{G}_\theta$. Since $\bm{G}_\theta$ annihilates the kernel component of
+$\bm{v}_B$, we have $\bm{G}_\theta\bm{v}_B =
+\bm{G}_\theta\Pi_{\mathrm{row}}\bm{v}_B$ and hence
+\begin{equation}
+  \norm{\bm{c}^\star}_2
+  \;=\; \norm{\Pi_{\mathrm{row}}\bm{v}_B}_2
+  \;\ge\; \frac{\norm{\bm{G}_{\theta,S}\,\bm{v}_B}_2}
+                 {\sigma_{\max}\!\big(\bm{G}_\theta\big)},
+  \label{eq:compcost}
+\end{equation}
+where $\bm{G}_{\theta,S}$ restricts $\bm{G}_\theta$ to the columns in $S$ (so
+$\bm{G}_\theta\bm{v}_B = \bm{G}_{\theta,S}\bm{v}_B$, since $\bm{v}_B$ is
+supported on $S$). This bound makes \emph{no rank assumption}: it is
+strictly positive exactly when $\bm{G}_{\theta,S}\bm{v}_B \ne 0$, that is,
+whenever the target edit has a nonzero \emph{visible} component within its block
+($\bm{v}_B \notin \ker \bm{G}_{\theta,S}$), a condition that holds for
+Lebesgue-almost-every $\bm{v}_B$ as soon as
+$\operatorname{rank}(\bm{G}_{\theta,S}) \ge 1$. In the fully observable case
+$\operatorname{rank}(\bm{G}_{\theta,S}) = |S|$ and
+$\sigma_{\min}(\bm{G}_{\theta,S}) > 0$, so
+$\norm{\bm{G}_{\theta,S}\bm{v}_B}_2 \ge
+\sigma_{\min}(\bm{G}_{\theta,S})\,\norm{\bm{v}_B}_2$ and
+Eq.~\eqref{eq:compcost} strengthens to the uniform positive fraction of
+$\norm{\bm{v}_B}_2$; the rank-free bound is thus a strict generalization of the
+rank-based one. In particular, a \emph{support-confined} edit
+($\delta = \delta_S$) is stealthy only if $\delta_S \in \ker
+\bm{G}_{\theta,S}$, a subspace of dimension $|S| -
+\operatorname{rank}(\bm{G}_{\theta,S})$: full rank collapses it to $\{0\}$ (no
+nonzero support-confined stealthy edit), while in general it remains a proper,
+generically thin subspace, and any edit outside it forces the adversary to
+perturb weights outside $S$ with a compensation norm bounded below by its
+visible footprint scaled by $1/\sigma_{\max}(\bm{G}_\theta)$, thereby inflating
+both the total edit norm and, through Eq.~\eqref{eq:floor}, its second-order
+footprint.
+\end{proposition}
+
+\begin{remark}[Why evasion is computationally prohibitive]
+\label{rem:adv}
+Propositions~\ref{prop:stealth} and \ref{prop:comp} make precise the sense in
+which ``keeping the distributional-divergence fingerprint invariant across
+multiple probes'' is possible in principle but computationally prohibitive in
+practice, consistent with Limitation~(vi) of \S\ref{sec:disc}, which concedes
+that evasion is not precluded. The kernel $\mathcal{K}_\theta$ has codimension
+$\operatorname{rank}\bm{G}_\theta \le m|\Vsh|$, and since $P$ exceeds
+$m|\Vsh|$ by orders of magnitude for the models considered, it is nonempty: the
+obstacle is the thinness of the invariant directions, the
+ill-conditioned nonlinear system one must solve to exploit them, and the exact
+global compensation their use requires. (i) \emph{Thinness.} The set of
+target edits satisfying $\bm{v}_B \in \mathcal{K}_\theta$ is a proper linear
+subspace, hence of measure zero in $\R^P$; a backdoor not engineered
+specifically for the kernel is visible with certainty. (ii)
+\emph{Discoverability.} Engineering an invariant edit requires the Jacobian,
+and, because the invariance condition $D_{\mathrm{KL}} \approx 0$ is a
+\emph{nonlinear} constraint on $\theta$, of which the quadratic form of
+Proposition~\ref{prop:fisher} is only the small-$\delta$ approximation, one
+must solve an ill-conditioned nonlinear system. White-box, one must solve such
+a system of $m|\Vsh|$ equations in $P \sim 10^9$ variables. The
+loss landscape of an LLM is pathologically ill-conditioned. At the level
+of the observable, the singular values of $\bm{G}_\theta$ span many decades; by
+Proposition~\ref{prop:score} the Fisher information is $\sum_i \bm{J}_i^\top
+\operatorname{diag}\!\big(p_\theta(\cdot\mid \bm{x}^{(i)})\big)\bm{J}_i$, so
+the curvature along a weight direction is a probability-weighted squared
+observable footprint. Any finite-precision solve leaves a residue
+$\bm{G}_\theta\hat\delta \ne 0$ that Eq.~\eqref{eq:floor} amplifies into an
+irreducible quadratic shift. Black-box, which is the setting this paper
+targets, $\bm{G}_\theta$ is not even available: estimating it by forward
+differences costs $\Omega(P)$ noisy oracle queries, and any ``null'' direction
+$\hat\delta$ of the estimated Jacobian $\hat{\bm{G}}$ satisfies
+$\norm{\bm{G}_\theta\hat\delta}_2 \le \norm{\hat{\bm{G}} - \bm{G}_\theta}
+\,\norm{\hat\delta}_2$, again leaving a floor for the detector. (iii)
+\emph{Cost of use.} Even when an invariant direction exists,
+Eq.~\eqref{eq:compcost} shows that hiding a behavior-relevant edit requires a
+\emph{global} compensation whose norm is at least the edit's visible footprint
+scaled by $1/\sigma_{\max}(\bm{G}_\theta)$, positive whenever the block is not
+entirely invisible to the fingerprint (that is, whenever
+$\operatorname{rank}(\bm{G}_{\theta,S}) \ge 1$), and the compensation must be
+\emph{exact}: any shortfall is read by the second-order floor. Taken together,
+these three costs, a measure-zero target subspace, an ill-conditioned
+nonlinear solve, and an exact global compensation, make successful evasion
+computationally prohibitive for the models considered, even though it is not
+ruled out in principle.
+\end{remark}
+
+\begin{remark}[Quantitative size of the stealth region]
+\label{rem:advscale}
+The floor of Eq.~\eqref{eq:floor} is quadratic in the visible residue, so the
+effective radius of the stealth region shrinks as the fingerprint sensitivity
+grows. Under the random-perturbation protocol of \S\ref{sec:exp:calib}
+($\delta \sim \mathcal{N}(0, (r\sigma)^2 I)$),
+Proposition~\ref{prop:fisher} gives the expected KL shift as
+$\tfrac12 (r\sigma)^2 \operatorname{tr}\bar{\bm{F}}_\theta$, and requiring
+$D_{\mathrm{KL}} \le \tau$ pins the perturbation scale to
+$r\sigma \lesssim \sqrt{2\tau \big/ \operatorname{tr}\bar{\bm{F}}_\theta}$.
+The measured sensitivities are large. $D_{\mathrm{KL}}$ reaches
+$0.010$--$0.028$ already at $r = 0.02$ and grows as $r^2$
+(Table~\ref{tab:calib}), so this radius is small compared with any edit that
+materially changes model behavior. The second-order incompressibility of
+Proposition~\ref{prop:stealth} is what converts a fingerprint that is merely
+\emph{sensitive} into one that is \emph{costly to evade}.
+\end{remark}
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}
