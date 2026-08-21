@@ -1,0 +1,5 @@
+model condition effrank top3 var90 trace
+source 4.375 0.665 10 23659724.0
+source 17.637 0.333 38 20130422.0
+target 5.821 0.631 11 15527219.0
+target 14.771 0.365 35 9200476.0

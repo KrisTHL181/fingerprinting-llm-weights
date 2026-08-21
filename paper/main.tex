@@ -69,7 +69,10 @@ deterministic end to end against a live model.
 Across families, tokenizer mismatch drives the divergence to a
 saturated maximum, so a model swap is caught with a large margin
 ($D_{\mathrm{KL}}=4.1$); within a family, a black-box statistic preserves the
-calibration at roughly half to three-quarters of the white-box magnitude.
+calibration at roughly half to three-quarters of the white-box magnitude, a
+larger share than a random-probe distributional baseline retains, whose
+next-token mass sits in a high-entropy tail that the top-$k$ readout
+discards.
 An ablation of the probe-construction role (\S\ref{sec:exp:ablate}) shows that
 representation alignment contributes a transferable, low-rank probe set, the
 property on which black-box cross-model comparison rests; it does not maximize
@@ -144,7 +147,10 @@ Concretely, we make three contributions:
   API; and a characterization of cross-family comparison in which tokenizer
   mismatch drives the fingerprint to its maximal (saturated) signal, so a
   change of model family is detected decisively, while fine-grained
-  attribution remains bounded.
+  attribution remains bounded. A comparison with distributional baselines
+  (\S\ref{sec:exp:baselines}) shows that the aligned probes retain a larger
+  share of their signal under the black-box top-$k$ readout than a
+  random-probe fingerprint.
 \end{enumerate}
 
 \section{Related Work}
@@ -188,6 +194,21 @@ representation; the signal is therefore a within-representation-cluster
 distributional divergence. Second, our statistic is the \emph{KL divergence}
 between the per-probe next-token distributions, which is far more sensitive to
 weight perturbation than their mean.
+
+\paragraph{Distributional baselines.}
+A recent line of work fingerprints a model from the distribution it produces
+rather than from its hidden states. \citet{onetoken} shows that the distribution
+of answers to trivial single-token prompts, compared by Jensen-Shannon
+divergence, already identifies a model's family from a black-box endpoint.
+\citet{rpi} audits a fine-tuned model from teacher-forced next-token statistics,
+including the normalized negative log-likelihood, top-$k$ inclusion, and the
+confidence margin. Both methods use the same observable signal we use, the
+next-token distribution, but with probe sets that are not representation-aligned.
+We compare against them directly in \S\ref{sec:exp:baselines}. On the
+weight-noise calibration they are more sensitive than our fingerprint at small
+perturbations, yet their probes induce a diffuse, non-transferable signal on a
+different model. Representation alignment preserves a low-rank fingerprint, at
+some cost in raw sensitivity.
 
 \section{Problem Formulation}
 \label{sec:form}
@@ -816,6 +837,96 @@ Model & Condition & effrank & top3 & var90 & $H$ \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Comparison with Distributional Baselines}
+\label{sec:exp:baselines}
+
+The distributional methods of \S\ref{sec:related} use the same observable
+signal, the next-token distribution, but with probe sets that are not
+representation-aligned. We compare against two of them on the weight-noise
+protocol of \S\ref{sec:exp:calib}. The first is a random-probe distributional
+fingerprint in the style of \citet{onetoken}: it draws matched-length random
+token sequences from the shared subword vocabulary, with no representation
+alignment, and measures the mean per-probe next-token KL divergence. The second
+uses the teacher-forced token statistics of \citet{rpi}, the normalized
+negative log-likelihood and the confidence margin, aggregated per probe into a
+$\chi^2$ change-detection signal. Probe counts and noise scales match
+Table~\ref{tab:calib}.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Comparison of the random-probe distributional fingerprint, which
+follows the output-distribution signal of \citet{onetoken}, with our
+representation-aligned fingerprint on the weight-noise protocol of
+\S\ref{sec:exp:calib}. The teacher-forced statistics of \citet{rpi} are
+discussed in the text. For each metric the better value is bold. Our fingerprint
+retains a larger share of its signal under the black-box top-$k$ readout, is
+transferable across models, and detects a cross-family model swap with a larger
+margin, at the cost of a smaller raw per-probe divergence at small
+perturbations.}
+\label{tab:compare}
+\begin{tabular}{lcc}
+\toprule
+Metric & Random-probe (\citealp{onetoken}) & Ours \\
+\midrule
+Black-box top-$k$ retention, Qwen $r{=}0.10$ (fraction) & 0.46 & \textbf{0.64} \\
+Black-box top-$k$ retention, Gemma $r{=}0.10$ (fraction) & 0.44 & \textbf{0.70} \\
+Transferable low-rank, top-3 trace on Llama target & 0.37 & \textbf{0.63} \\
+Cross-model swap divergence, Qwen$\to$Llama (top-20) & 0.67 & \textbf{4.09} \\
+\midrule
+Small-scale sensitivity, full-vocab $D_{\mathrm{KL}}$ at $r{=}0.10$ & \textbf{1.43} & 0.62 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The black-box readout of \S\ref{sec:cov} keeps only the top-$k$ next-token
+log-probabilities, so a fingerprint is useful in deployment only insofar as its
+signal survives that truncation. Representation-aligned probes are markedly more
+top-$k$-efficient than a random-probe baseline: across the three models and all
+perturbation scales, the top-$20$ truncated divergence retains roughly half to
+four-fifths of the full-vocabulary KL for the aligned probes, against roughly a
+third to half for the random baseline (Table~\ref{tab:compare}). The reason is
+that aligned probes induce low-entropy next-token distributions, concentrating
+their probability mass in the top-$k$, whereas random probes spread the same
+logit shift over a high-entropy tail that the truncation discards. Under the
+black-box readout the aligned fingerprint is therefore less degraded than the
+baseline: for Qwen at $r=0.20$ the truncated divergence of the aligned
+fingerprint ($2.73$) exceeds the random baseline's ($2.30$). The comparison of
+Table~\ref{tab:compare} makes the trade-off explicit: our fingerprint wins on
+the black-box retention and on transferability, and the random baseline's
+advantage is confined to the raw full-vocabulary divergence at small
+perturbations, which is a scale effect of its higher probe entropy. Black-box
+compatibility is thus a place where representation alignment buys a concrete
+advantage over distributional baselines.
+
+The decisive difference is transferability. Read on a second model, the
+random-probe fingerprint stays diffuse: on the Llama target of
+Table~\ref{tab:ablate_conc} its per-probe covariance has a participation ratio
+of about $15$ with the top three eigenvalues carrying a third of the trace,
+whereas the representation-aligned fingerprint keeps a participation ratio of
+about $5$ with two-thirds of the trace in the top three. The random-probe
+baseline therefore offers no low-rank signal for the cross-model comparison of
+\S\ref{sec:exp:cross}; it detects a change of weights within a model but does
+not transfer a concentrated fingerprint to another.
+
+The same mechanism decides the cross-model case. Read on a different family, as
+in a wholesale Qwen-to-Llama swap, the low entropy of the aligned probes raises
+the saturation ceiling of Proposition~\ref{prop:saturation}, so the swap
+divergence reaches $4.09$ against $0.67$ for the random baseline
+(Table~\ref{tab:compare}); the random probes' high-entropy top-$k$s overlap
+across the two models and dilute the signal. The aligned fingerprint detects a
+model swap with roughly six times the margin of the baseline, a decisive
+advantage that the saturation analysis of \S\ref{sec:exp:cross} predicts.
+
+The teacher-forced statistics of \citet{rpi}, evaluated as a change-detection
+signal, detect the perturbation but less cleanly. On Qwen the $\chi^2$ aggregate
+rises from $57$ at $r=0.10$ to $317$ at $r=0.40$ ($df=126$) and then falls to
+$184$ at $r=1.0$; on Llama it peaks at $r=0.60$ and falls by $r=1.0$. The
+component statistics, the normalized negative log-likelihood and the confidence
+margin, also change sign across the sweep. The divergence $D_{\mathrm{KL}}$ is
+the only monotone, positive-definite statistic we compared, which is why it
+remains the primary verdict in \S\ref{sec:detect}.
 
 \subsection{Ground-Truth-Controlled Detection of Real Weight Edits}
 \label{sec:mods}
