@@ -1,0 +1,22 @@
+{
+  "model": "Qwen/Qwen3.5-0.8B",
+  "layer": 8,
+  "n_probes": 63,
+  "zero_noise": {"KL_full": 0.0, "KL_trunc20": 0.0},
+  "lora_sweep": [
+    {"s": 0.0,  "KL_full": 0.0000, "KL_trunc20": 0.0000},
+    {"s": 0.05, "KL_full": 0.0010, "KL_trunc20": 0.0008},
+    {"s": 0.10, "KL_full": 0.0022, "KL_trunc20": 0.0018},
+    {"s": 0.20, "KL_full": 0.0075, "KL_trunc20": 0.0061},
+    {"s": 0.40, "KL_full": 0.0284, "KL_trunc20": 0.0234},
+    {"s": 0.70, "KL_full": 0.0872, "KL_trunc20": 0.0735},
+    {"s": 1.00, "KL_full": 0.1734, "KL_trunc20": 0.1477}
+  ],
+  "lora_train_steps": 250,
+  "cross_family_qwen_to_llama": {
+    "KL_full_shared": 4.4059,
+    "KL_trunc_shared": 4.1072,
+    "n_probes_evaluated": 63,
+    "shared_tokens": 115771
+  }
+}
