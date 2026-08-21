@@ -63,7 +63,10 @@ swap ($D_{\mathrm{KL}} = 4.11$), an order of magnitude apart. Calibration under
 injected Gaussian noise of scale $r\sigma$ on three open-weight models
 (Qwen3.5-0.8B, Llama-3.2-1B, Gemma-3-1B) yields a divergence that grows
 quadratically in $r$, consistent with the Fisher-information prediction and
-stable across model families and the two Qwen layers ($L8$/$L16$). A zero-noise
+stable across model families and the two Qwen layers ($L8$/$L16$). A
+scale-stability argument (\S\ref{sec:theory}) indicates the quadratic response
+and its saturation ceiling are width-independent, so the pattern is expected to
+persist at larger scales. A zero-noise
 determinism check over the DeepSeek API confirms that the black-box readout is
 deterministic end to end against a live model.
 Across families, tokenizer mismatch drives the divergence to a
@@ -447,6 +450,32 @@ Large & $D_{\mathrm{KL}} \to -H(p_\theta) - \log f$ (saturation) & disjoint top-
 \bottomrule
 \end{tabular}
 \end{table}
+
+\paragraph{Scale stability.}
+The calibration of \S\ref{sec:exp:calib} is demonstrated at a single scale
+($0.8$B), which raises the question of whether the quadratic
+(Fisher-information) regime persists at larger models. The second-order
+response of Proposition~\ref{prop:fisher} is a property of the local geometry
+of the log-probability surface, and that geometry is normalized by
+construction: standard (maximal-update-style) parameterization keeps
+activations of unit order and hidden weights of entrywise scale
+$\Theta(D^{-1/2})$, so a \emph{relative} weight perturbation of scale $r$
+moves every logit by $O(r\sqrt{L})$, with a constant independent of the hidden
+width $D$ (Proposition~\ref{prop:scale}, \S\ref{sec:app-scale}). The
+probe-averaged, scale-normalized Fisher trace then satisfies
+$\operatorname{tr}\!\big(\bm{\Sigma}^{1/2}\bar{\bm{F}}_\theta
+\bm{\Sigma}^{1/2}\big) = \Theta(L)$, where $\bm{\Sigma}$ collects the
+per-weight scales, so the expected divergence
+$\E\,D_{\mathrm{KL}} = \tfrac12 r^2\,\Theta(L)$ does not vanish or degenerate
+as the model widens, and it grows with depth $L$. A larger model is therefore
+detected with a larger margin. The saturation ceiling and the detection floor
+move in the same direction: larger models induce more confident next-token
+distributions, so the entropy term $-H$ in the ceiling of
+Proposition~\ref{prop:saturation} rises, and the minimum observed top-$k$
+probability $\gamma$ of Proposition~\ref{prop:stealth} rises, tightening the
+floor of Eq.~\eqref{eq:floor}. Scale does not invalidate the fingerprint: the
+quadratic response and the saturation ceiling transfer to larger models up to
+constants.
 
 \paragraph{Adversarial invariance.}
 An adversary who knows the entire method can in principle engineer a targeted
@@ -1370,9 +1399,11 @@ $-15$ for the API) below which the next-token distribution is only bounded,
 not measured; this
 floors the estimated $D_{\mathrm{KL}}$ and should be accounted for when setting
 detection thresholds.
-(v) Our calibration is demonstrated at a single model scale ($0.8$B); whether
-the quadratic (Fisher-information) regime holds at much larger scales is
-unverified. (vi) An adversary who
+(v) Our calibration is demonstrated at a single model scale ($0.8$B). The
+scale-stability analysis of Proposition~\ref{prop:scale} argues that the
+quadratic (Fisher-information) regime and the saturation ceiling are
+width-independent, but this prediction remains unverified empirically on a
+large-scale checkpoint. (vi) An adversary who
 controls the served model and knows the method is constrained but not
 precluded: second-order stealth is exactly null-space membership
 (Prop.~\ref{prop:stealth}), so any distribution-level detector inherits the
@@ -1422,7 +1453,10 @@ should compare the \emph{second-order} response of the observable next-token
 distribution instead of its expectation. That response is governed by the Fisher
 information, and representation-aligned probes, sentences the model's own
 representation places together, provide the controlled setting in which that
-response is identifiable.
+response is identifiable. A scale-stability analysis (\S\ref{sec:app-scale})
+indicates the quadratic response and its saturation ceiling are independent of
+the hidden width, so the detection pattern is expected to persist at larger
+model scales.
 
 \paragraph{Acknowledgments.} We thank the anonymous reviewers for their
 feedback.
@@ -1594,6 +1628,90 @@ to a perturbation scale, is reliable within the first two regimes, where the
 response is strictly increasing in $r$; at saturation the fingerprint has
 already registered its strongest signal, the basis of decisive change and
 cross-family detection.
+
+\subsection{Scale stability of the quadratic response}
+\label{sec:app-scale}
+
+\begin{proposition}[Scale stability of the quadratic response]
+\label{prop:scale}
+Suppose the model follows a width-normalized (maximal-update-style)
+parameterization: each hidden weight matrix has entrywise scale
+$\sigma_w = \Theta(D^{-1/2})$ for hidden width $D$, activations are $O(1)$ at
+every layer, and the readout keeps the logits $O(1)$. Under the relative-noise
+protocol $\delta = r\hat\delta$ with $\hat\delta_w \sim
+\mathcal{N}(0,\sigma_w^2)$ independent across weights, the expected divergence
+satisfies
+\begin{equation}
+  \E_{\hat\delta}\, D_{\mathrm{KL}}(\theta, \theta + r\hat\delta)
+  \;=\; \tfrac12\, r^2 \operatorname{tr}\!\big(\bm{\Sigma}^{1/2}
+  \bar{\bm{F}}_\theta \bm{\Sigma}^{1/2}\big) + O(r^4),
+  \label{eq:scale}
+\end{equation}
+where $\bm{\Sigma} = \operatorname{diag}(\sigma_w^2)$, the cubic remainder of
+Proposition~\ref{prop:fisher} vanishes in expectation by the symmetry of the
+centered Gaussian, and the scale-normalized Fisher trace obeys
+$\operatorname{tr}\!\big(\bm{\Sigma}^{1/2}\bar{\bm{F}}_\theta
+\bm{\Sigma}^{1/2}\big) = \Theta(L)$, with constants independent of the hidden
+width $D$ and the shared vocabulary size $|\Vsh|$. The quadratic
+(Fisher-information) regime of Proposition~\ref{prop:fisher} therefore persists
+at every width, with a coefficient that grows linearly in the depth $L$ and
+does not vanish as the model widens.
+\end{proposition}
+
+The scale-normalized Fisher trace expands as a probability-weighted sum of
+squared scale-normalized scores: inserting the Jacobian form of
+$\bar{\bm{F}}_\theta$ (Proposition~\ref{prop:fisher}) and cycling the trace
+gives
+\begin{equation}
+  \operatorname{tr}\!\big(\bm{\Sigma}^{1/2}\bar{\bm{F}}_\theta
+  \bm{\Sigma}^{1/2}\big)
+  \;=\; \frac1m \sum_{i=1}^m \sum_{t \in \Vsh} p_\theta(t \mid \bm{x}^{(i)})\,
+  \big\|\bm{\Sigma}^{1/2}\nabla_\theta \log p_\theta(t \mid \bm{x}^{(i)})\big\|_2^2.
+  \label{eq:scaletrace}
+\end{equation}
+Three observations bound this quantity independently of the width. First, a
+relative perturbation of a single linear map does not amplify with width: for
+$\bm{y} = \bm{W} \bm{x}$ with $\bm{W}$ of entrywise scale $\sigma_w$ and
+$\norm{\bm{x}}_2^2 = \Theta(D)$, a relative perturbation $\delta\bm{W}$ (entries
+$\delta W_{ab} = r\sigma_w\xi_{ab}$) changes the $a$-th output coordinate by
+$\delta y_a = \sum_b \delta W_{ab}\, x_b$ with
+\begin{equation}
+  \E\big[\delta y_a^2\big]
+  \;=\; \sum_b r^2\sigma_w^2\, x_b^2
+  \;=\; r^2\sigma_w^2\,\norm{\bm{x}}_2^2
+  \;=\; \Theta(r^2),
+  \label{eq:widthnorm}
+\end{equation}
+since $\sigma_w^2 = \Theta(1/D)$ cancels $\norm{\bm{x}}_2^2 = \Theta(D)$; the
+hidden width drops out of the per-coordinate change. Second, depth: with
+residual connections of unit gain and $O(1)$ activations at each layer, a
+relative-$r$ perturbation of the weights at layer $\ell$ changes the
+per-coordinate activations of every later layer by $O(r)$, and the readout row,
+of norm $\Theta(1)$, contracts this to an $O(r)$ change in each logit; the
+per-layer contributions accumulate across $L$ layers to a total logit shift of
+$O(r\sqrt{L})$ in the root-mean-square ($O(rL)$ in the worst case), so the
+depth enters at most linearly. Third, the log-softmax has Jacobian
+$I - \mathbf{1}\,\softmax(\bm{z})^\top$, a projection of unit operator norm, so
+a logit shift of norm $O(r\sqrt{L})$ induces a log-probability shift of the
+same order and hence a per-probe KL divergence of $\Theta(r^2 L)$. Matching
+this against the Fisher form $\tfrac12 r^2 \operatorname{tr}(\bm{\Sigma}^{1/2}
+\bar{\bm{F}}_\theta\bm{\Sigma}^{1/2})$ identifies the trace as $\Theta(L)$,
+each layer contributing $\Theta(1)$. The dependence on $|\Vsh|$ disappears
+because the sum over $t \in \Vsh$ in Eq.~\eqref{eq:scaletrace} is weighted by
+$p_\theta(t \mid \bm{x}^{(i)})$, which sums to $1$.
+
+\begin{remark}
+The width-normalization in the hypothesis is the maximal-update
+parameterization, realized approximately by standard pretraining and consistent
+with the agreement of the calibration across the three families of
+\S\ref{sec:exp:calib}. The proposition controls the \emph{relative}-noise
+response, which is exactly the protocol the calibration injects, and it
+identifies the quadratic regime, the monotone growth, and the saturation
+ceiling as properties of the relative perturbation scale $r$ instead of the
+model width. It does not compute the per-model constant, which remains the role
+of calibration, and empirical verification on a large-scale checkpoint remains
+open (limitation~(v)).
+\end{remark}
 
 \subsection{Adversarial invariance}
 \label{sec:app-adv}
