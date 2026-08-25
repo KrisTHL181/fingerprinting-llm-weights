@@ -14,9 +14,15 @@ show  : 打印已存档指纹摘要。
   record: python deepseek_covariance.py record --out ds_cov.json [--samples 3]
   check : python deepseek_covariance.py check  --out ds_cov.json [--alpha 1e-3]
   show  : python deepseek_covariance.py show   --out ds_cov.json
+
+探针缓存: 构建探针集(共享词表 + 近义上下文)很贵(加载本地模型/远程 tokenizer +
+GPU 同义句搜索), 而它是确定性的 → 首次构建后写入 --probe-cache
+(默认 ../data/ds_probe_cache.json), 之后 record/check 直接复用, 不再加载
+aligner 模型, 也不重复下载 DeepSeek tokenizer。构建参数(模型/参考句/每参考
+上下文数)变了会自动重建缓存。
 """
 from __future__ import annotations
-import argparse, json, math, time, urllib.request
+import argparse, json, math, os, time, urllib.request
 import numpy as np
 from scipy.stats import chi2
 from transformers import AutoTokenizer
@@ -33,6 +39,12 @@ REFERENCES = [
     "The committee approved the new budget proposal this morning.",
     "She walked slowly through the old town under the rain.",
 ]
+
+# 探针构建参数(与 build_probe_contexts 内的调用一致, 用于缓存校验)
+PROBE_TOP_K = 6
+PROBE_K_NEIGHBORS = 200
+PROBE_CACHE_DEFAULT = "../data/ds_probe_cache.json"
+PROBE_CACHE_SCHEMA = 1
 
 
 # ---------------------------------------------------------------------------
@@ -59,19 +71,100 @@ def ds_top_logprobs(prefix: str, top_n: int = 20):
     return out
 
 
+# ---------------------------------------------------------------------------
+# 探针缓存: 共享词表 + 近义上下文 只构建一次, 之后复用
+# ---------------------------------------------------------------------------
+def probe_cache_path(args) -> str:
+    return args.probe_cache or PROBE_CACHE_DEFAULT
+
+
+def _build_probe_artifacts(args):
+    """现场构建共享词表与探针上下文集(较贵: 加载模型 + GPU 搜索)。"""
+    aligner = Aligner(MODEL_NAME, layer=8)
+    dt = set(AutoTokenizer.from_pretrained(TARGET_MODEL_NAME,
+                                           trust_remote_code=True).get_vocab().keys())
+    shared = set(aligner.tok.get_vocab().keys()) & dt
+    aligner.restrict_vocab(shared)
+    print(f"shared vocab: {len(shared)}", flush=True)
+    contexts = build_probe_contexts(aligner, args.contexts_per_ref)
+    return contexts, shared
+
+
+def load_probe_cache(args, require_params: bool):
+    """读取探针缓存; 校验失败(或不存在)返回 None。
+    require_params=True 时校验完整构建参数, 保证缓存的上下文与当前参数一致。"""
+    path = probe_cache_path(args)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        cache = json.load(f)
+    if cache.get("schema") != PROBE_CACHE_SCHEMA:
+        return None
+    if require_params and (
+        cache.get("aligner_model") != MODEL_NAME
+        or cache.get("target_model") != TARGET_MODEL_NAME
+        or cache.get("references") != REFERENCES
+        or cache.get("contexts_per_ref") != args.contexts_per_ref
+        or cache.get("top_k") != PROBE_TOP_K
+        or cache.get("k_neighbors") != PROBE_K_NEIGHBORS
+    ):
+        return None
+    return cache
+
+
+def _write_probe_cache(args, contexts, shared):
+    path = probe_cache_path(args)
+    cache = {
+        "schema": PROBE_CACHE_SCHEMA,
+        "aligner_model": MODEL_NAME, "target_model": TARGET_MODEL_NAME,
+        "references": REFERENCES,
+        "contexts_per_ref": args.contexts_per_ref,
+        "top_k": PROBE_TOP_K, "k_neighbors": PROBE_K_NEIGHBORS,
+        "built_at": int(time.time()),
+        "contexts": contexts, "shared_vocab": sorted(shared),
+    }
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=1)
+    print(f"[cache] 已写入探针缓存: {path}", flush=True)
+
+
+def load_or_build_probe(args):
+    """返回 (contexts, shared)。缓存有效直接复用(不加载 aligner),
+    否则现场构建并写缓存。"""
+    cache = load_probe_cache(args, require_params=True)
+    if cache is not None:
+        print(f"[cache] 复用探针缓存: {probe_cache_path(args)}  "
+              f"({len(cache['contexts'])} 上下文, {len(cache['shared_vocab'])} 共享词表)",
+              flush=True)
+        return cache["contexts"], set(cache["shared_vocab"])
+    contexts, shared = _build_probe_artifacts(args)
+    _write_probe_cache(args, contexts, shared)
+    return contexts, shared
+
+
+def get_shared_vocab(args):
+    """取共享词表(probe 过滤用)。优先读缓存; 缓存缺失时现场构建一次。"""
+    cache = load_probe_cache(args, require_params=False)
+    if cache is not None:
+        return set(cache["shared_vocab"])
+    _, shared = _build_probe_artifacts(args)
+    return shared
+
+
 def build_probe_contexts(aligner, contexts_per_ref: int):
     """用近义候选句(共享词表内)构建探针上下文集。"""
     ctx = []
     for ref in REFERENCES:
         ids = aligner.tok(ref, return_tensors="pt")["input_ids"].to("cuda")
-        cands = aligner.sample_near_synonyms(ids, M=contexts_per_ref, top_k=6,
-                                             k_neighbors=200)
+        cands = aligner.sample_near_synonyms(ids, M=contexts_per_ref, top_k=PROBE_TOP_K,
+                                             k_neighbors=PROBE_K_NEIGHBORS)
         for c in cands:
             ctx.append(aligner.decode(c)[0])
     return ctx
 
 
-def probe(aligner, shared, contexts, samples, top_n):
+def probe(shared, contexts, samples, top_n):
     """对每个上下文采样 samples 次, 返回:
        - token_stats: {token: [obs_logp, ...]}  (只含观测到的共享 token)
        - ctx_means:   [{token: mean_logp}, ...] (每上下文对 samples 取均值)"""
@@ -125,15 +218,9 @@ def chi2_sf(x2, df):
 # record / check / show
 # ---------------------------------------------------------------------------
 def do_record(args):
-    aligner = Aligner(MODEL_NAME, layer=8)
-    dt = set(AutoTokenizer.from_pretrained(TARGET_MODEL_NAME,
-                                           trust_remote_code=True).get_vocab().keys())
-    shared = set(aligner.tok.get_vocab().keys()) & dt
-    aligner.restrict_vocab(shared)
-    print(f"shared vocab: {len(shared)}", flush=True)
-    contexts = build_probe_contexts(aligner, args.contexts_per_ref)
+    contexts, shared = load_or_build_probe(args)
     print(f"probe contexts: {len(contexts)}  samples/ctx: {args.samples}", flush=True)
-    token_obs, ctx_means = probe(aligner, shared, contexts, args.samples, args.top_n)
+    token_obs, ctx_means = probe(shared, contexts, args.samples, args.top_n)
     cov, V, X, means = covariance_from_ctx(ctx_means, args.floor)
     eig = np.linalg.eigvalsh((cov + cov.T) / 2)
     eig = eig[eig > 1e-9][::-1]
@@ -147,6 +234,7 @@ def do_record(args):
         "schema": 1, "model": DS_MODEL, "collected_at": int(time.time()),
         "contexts": contexts, "n_contexts": len(contexts),
         "samples": args.samples, "top_n": args.top_n, "floor": args.floor,
+        "probe_cache": probe_cache_path(args),
         "token_stats": stats, "cov_eigvals": [float(e) for e in eig],
         "cov_trace": float(cov.trace()), "cov_frob": float(np.linalg.norm(cov)),
         "mean_logp": {t: float(v) for t, v in zip(V, means)},
@@ -161,15 +249,11 @@ def do_record(args):
 def do_check(args):
     with open(args.out, encoding="utf-8") as f:
         old = json.load(f)
-    aligner = Aligner(MODEL_NAME, layer=8)
-    dt = set(AutoTokenizer.from_pretrained(TARGET_MODEL_NAME,
-                                           trust_remote_code=True).get_vocab().keys())
-    shared = set(aligner.tok.get_vocab().keys()) & dt
-    aligner.restrict_vocab(shared)
     contexts = old["contexts"]
+    shared = get_shared_vocab(args)
     samples = args.samples or old["samples"]
     print(f"[check] 重探 {len(contexts)} 上下文 x {samples} 采样", flush=True)
-    token_obs, ctx_means = probe(aligner, shared, contexts, samples, old["top_n"])
+    token_obs, ctx_means = probe(shared, contexts, samples, old["top_n"])
     cov_new, V_new, _, mean_new = covariance_from_ctx(ctx_means, old["floor"])
     eig_new = np.linalg.eigvalsh((cov_new + cov_new.T) / 2)
     eig_new = eig_new[eig_new > 1e-9][::-1]
@@ -232,6 +316,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="{record,check,show}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--out", default="../data/ds_cov.json")
+    common.add_argument("--probe-cache", default=None,
+                        help=f"探针缓存文件(默认 {PROBE_CACHE_DEFAULT})")
     r = sub.add_parser("record", parents=[common])
     r.add_argument("--contexts-per-ref", type=int, default=7)
     r.add_argument("--samples", type=int, default=2)
